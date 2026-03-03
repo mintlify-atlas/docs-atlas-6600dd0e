@@ -1,0 +1,121 @@
+{
+  "projectType": "saas",
+  "projectName": "Trellixe",
+  "projectDescription": "A simple networking CRM that automates post-event follow-ups to help you build lasting connections.",
+  "theme": "almond",
+  "primaryColor": "#0891b2",
+  "lightColor": "#06b6d4",
+  "darkColor": "#0e7490",
+  "navigation": {
+    "tabs": [
+      {
+        "tab": "Documentation",
+        "groups": [
+          {
+            "group": "Get Started",
+            "pages": ["introduction", "quickstart", "installation"]
+          },
+          {
+            "group": "Core Features",
+            "pages": [
+              "features/contact-management",
+              "features/event-scheduling",
+              "features/follow-up-automation",
+              "features/interaction-logging"
+            ]
+          },
+          {
+            "group": "Team & Workspace",
+            "pages": [
+              "team/workspaces",
+              "team/invitations",
+              "team/members",
+              "team/roles-permissions"
+            ]
+          },
+          {
+            "group": "User Guide",
+            "pages": [
+              "guides/authentication",
+              "guides/notifications",
+              "guides/settings",
+              "guides/best-practices"
+            ]
+          }
+        ]
+      },
+      {
+        "tab": "API Reference",
+        "groups": [
+          {
+            "group": "Overview",
+            "pages": ["api/introduction", "api/authentication"]
+          },
+          {
+            "group": "Resources",
+            "pages": [
+              "api/contacts",
+              "api/events",
+              "api/invitations",
+              "api/follow-up-tasks",
+              "api/interaction-logs"
+            ]
+          },
+          {
+            "group": "Team Management",
+            "pages": [
+              "api/accounts",
+              "api/memberships",
+              "api/team-invitations"
+            ]
+          }
+        ]
+      },
+      {
+        "tab": "Development",
+        "groups": [
+          {
+            "group": "Setup",
+            "pages": [
+              "development/environment-setup",
+              "development/database-schema",
+              "development/running-tests"
+            ]
+          },
+          {
+            "group": "Architecture",
+            "pages": [
+              "development/models-overview",
+              "development/controllers",
+              "development/deployment"
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  "keyFeatures": [
+    "Contact management with detailed notes and context",
+    "Event scheduling and invitation tracking",
+    "Automated follow-up task creation",
+    "Team workspaces with role-based access",
+    "Web push notifications",
+    "Interaction logging for relationship building",
+    "Multi-tenant architecture",
+    "Authentication with social login support"
+  ],
+  "publicApiSurface": [
+    "GET/POST /contacts - Manage contacts",
+    "GET/POST /events - Create and manage events",
+    "POST /events/:id/invitations - Invite contacts to events",
+    "PATCH /invitations/:id - Update invitation status",
+    "GET /follow_up_tasks - View follow-up tasks",
+    "POST /interaction_logs - Log interactions",
+    "POST /accounts - Create workspaces",
+    "POST /team_invitations - Invite team members",
+    "POST /sign_in - User authentication",
+    "POST /sign_up - User registration",
+    "GET /notifications - View notifications",
+    "POST /web_push_subscriptions - Subscribe to push notifications"
+  ]
+}
