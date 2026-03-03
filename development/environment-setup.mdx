@@ -1,0 +1,229 @@
+---
+title: "Development Environment Setup"
+description: "Set up your local development environment for Trellixe"
+---
+
+## Prerequisites
+
+Before you begin, ensure you have the following installed on your system:
+
+- Ruby 3.4.5
+- PostgreSQL 9.3 or higher
+- Node.js (for asset compilation)
+- Git
+
+## Initial Setup
+
+<Steps>
+  <Step title="Clone the repository">
+    Clone the Trellixe repository to your local machine:
+    
+    ```bash
+    git clone <repository-url>
+    cd trellixe
+    ```
+  </Step>
+
+  <Step title="Install Ruby dependencies">
+    Install all required gems using Bundler:
+    
+    ```bash
+    bundle install
+    ```
+    
+    <Note>
+      Bundler 2.7.1 is used for this project. If you encounter version issues, run `gem install bundler:2.7.1`
+    </Note>
+  </Step>
+
+  <Step title="Configure database">
+    Set up your PostgreSQL database configuration. The default development database name is `trellixe_development`.
+    
+    ```yaml config/database.yml
+    development:
+      primary:
+        adapter: postgresql
+        encoding: unicode
+        pool: 5
+        database: trellixe_development
+      queue:
+        adapter: sqlite3
+        database: storage/trellixe_development_queue.sqlite3
+      cable:
+        adapter: sqlite3
+        database: storage/trellixe_development_cable.sqlite3
+      cache:
+        adapter: sqlite3
+        database: storage/trellixe_development_cache.sqlite3
+    ```
+    
+    <Warning>
+      The primary database uses PostgreSQL, while queue, cable, and cache use SQLite3 for development. Ensure you have both database adapters installed.
+    </Warning>
+  </Step>
+
+  <Step title="Create and migrate the database">
+    Create your development database and run migrations:
+    
+    ```bash
+    bin/rails db:create
+    bin/rails db:migrate
+    ```
+  </Step>
+
+  <Step title="Set up credentials">
+    Generate Rails credentials if they don't exist:
+    
+    ```bash
+    EDITOR="nano" bin/rails credentials:edit
+    ```
+  </Step>
+
+  <Step title="Start the development server">
+    Launch the Rails server:
+    
+    ```bash
+    bin/rails server
+    ```
+    
+    Your application will be available at `http://localhost:3000`
+  </Step>
+</Steps>
+
+## Key Dependencies
+
+### Core Framework
+- **Rails 8.0.3** - The main application framework
+- **Puma** - Web server for development and production
+
+### Database & Storage
+- **pg ~> 1.1** - PostgreSQL adapter
+- **sqlite3 >= 2.1** - SQLite3 adapter for cache/queue/cable
+- **solid_cache** - Database-backed cache adapter
+- **solid_queue** - Database-backed job queue
+- **solid_cable** - Database-backed Action Cable adapter
+
+### Authentication & Security
+- **authentication-zero ~> 4.0** - Authentication framework
+- **bcrypt ~> 3.1.7** - Password hashing
+- **pwned** - Password breach checking
+- **omniauth** - Multi-provider authentication
+
+### Frontend
+- **turbo-rails** - Hotwire SPA-like page acceleration
+- **stimulus-rails** - Modest JavaScript framework
+- **importmap-rails** - JavaScript with ESM import maps
+- **propshaft** - Modern asset pipeline
+- **css-zero ~> 2.2** - CSS framework
+
+### Utilities
+- **ransack ~> 4.4** - Object-based searching
+- **pagy ~> 9.4** - Pagination
+- **noticed ~> 2.9** - Notification system
+- **web-push** - Web push notifications
+- **mission_control-jobs** - Job monitoring
+
+### Development Tools
+- **faker ~> 3.5** - Test data generation
+- **letter_opener_web ~> 3.0** - Email preview in browser
+- **debug** - Debugging tool
+- **brakeman** - Security vulnerability scanner
+- **rubocop-rails-omakase** - Code style linter
+
+### Testing
+- **capybara** - System testing
+- **selenium-webdriver** - Browser automation
+
+## Development Workflow
+
+### Running the Console
+
+Access the Rails console:
+
+```bash
+bin/rails console
+```
+
+### Asset Compilation
+
+Assets are automatically compiled in development mode. For manual precompilation:
+
+```bash
+bin/rails assets:precompile
+```
+
+### Database Console
+
+Access the database directly:
+
+```bash
+bin/rails dbconsole
+```
+
+### Background Jobs
+
+Trellixe uses Solid Queue for background job processing. In development, jobs run inline by default. To run the queue processor separately:
+
+```bash
+bin/rails solid_queue:start
+```
+
+### Viewing Emails
+
+Emails in development are available via Letter Opener Web at:
+
+```
+http://localhost:3000/letter_opener
+```
+
+## Troubleshooting
+
+<AccordionGroup>
+  <Accordion title="PostgreSQL connection errors">
+    Ensure PostgreSQL is running:
+    
+    ```bash
+    # macOS with Homebrew
+    brew services start postgresql
+    
+    # Linux
+    sudo systemctl start postgresql
+    ```
+    
+    Verify connection settings in `config/database.yml` match your PostgreSQL configuration.
+  </Accordion>
+
+  <Accordion title="Bundle install failures">
+    If you encounter issues installing gems:
+    
+    1. Ensure you have the correct Ruby version: `ruby -v`
+    2. Update bundler: `gem install bundler`
+    3. Clear cache: `bundle clean --force`
+    4. Reinstall: `bundle install`
+  </Accordion>
+
+  <Accordion title="Asset loading issues">
+    Clear the asset cache and restart:
+    
+    ```bash
+    bin/rails tmp:clear
+    bin/rails restart
+    ```
+  </Accordion>
+</AccordionGroup>
+
+## Environment Variables
+
+Trellixe uses Rails credentials for sensitive data. For local development, you may need:
+
+- `RAILS_MASTER_KEY` - Decrypt credentials (auto-loaded from `config/master.key`)
+- `RAILS_MAX_THREADS` - Database connection pool size (default: 5)
+- `RAILS_LOG_LEVEL` - Logging level (default: debug in development)
+
+## Next Steps
+
+Once your environment is set up:
+
+- Review the [Database Schema](/development/database-schema) documentation
+- Learn how to [Run Tests](/development/running-tests)
+- Explore the codebase structure

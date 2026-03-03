@@ -1,0 +1,284 @@
+---
+title: "Team Invitations"
+description: "Invite team members to collaborate in your Trellixe workspace"
+---
+
+Team invitations allow workspace Admins to expand their team by inviting new members via email. Invitations are secure, time-limited, and tracked separately from event invitations.
+
+## Understanding Team Invitations
+
+Key characteristics of the invitation system:
+
+- **Email-Based**: Invitations are sent to email addresses
+- **Token Security**: Each invitation has a unique secure token (`app/models/team_invitation.rb:6`)
+- **Time-Limited**: Invitations expire after 48 hours
+- **Duplicate Protection**: Cannot invite existing members or duplicate emails
+- **Seat-Aware**: Respects workspace seat limits
+
+<Info>
+  Team invitations use the public ID prefix `tinv_` to distinguish from event invitations (`inv_`).
+</Info>
+
+## Sending an Invitation
+
+<Steps>
+  <Step title="Check Seat Availability">
+    Ensure your workspace has available seats before inviting.
+    
+    ```ruby
+    # app/models/account.rb:33-35
+    seat_limit_reached? # Returns true if seats_used >= seat_limit
+    ```
+    
+    <Note>
+      Both active members and pending invitations count toward the seat limit.
+    </Note>
+  </Step>
+  
+  <Step title="Navigate to Members Page">
+    Go to **Settings > Members** or access the members page from your workspace.
+  </Step>
+  
+  <Step title="Enter Email Address">
+    Provide the email address of the person you want to invite.
+    
+    **Validation Rules**:
+    - Must be a valid email format
+    - Cannot be an existing workspace member
+    - Cannot be a duplicate pending invitation
+    
+    ```ruby
+    # app/models/team_invitation.rb:10-12
+    validates :email, presence: true, 
+                      format: { with: URI::MailTo::EMAIL_REGEXP }
+    validates :email, uniqueness: { scope: :account_id }
+    ```
+  </Step>
+  
+  <Step title="Invitation Sent">
+    The system performs three actions:
+    
+    1. **Creates the invitation record** with 48-hour expiration
+    2. **Sends email** via `TeamInvitationMailer`
+    3. **Delivers in-app notification** (if recipient has a Trellixe account)
+    
+    <Info>
+      Existing Trellixe users receive both email and in-app notifications for instant awareness.
+    </Info>
+  </Step>
+</Steps>
+
+## Invitation Lifecycle
+
+### Expiration
+
+Invitations automatically expire 48 hours after creation:
+
+```ruby
+# app/models/team_invitation.rb:20-22
+def set_expiration
+  self.expires_at = 48.hours.from_now
+end
+```
+
+Expired invitations:
+- Cannot be accepted
+- Can be resent with a new expiration
+- Do not count toward seat limits after manual removal
+
+### Invitation States
+
+1. **Pending**: Invitation sent, awaiting acceptance
+2. **Expired**: 48 hours passed, requires resending
+3. **Accepted**: User joined the workspace (invitation deleted)
+4. **Revoked**: Admin canceled the invitation
+
+## Managing Pending Invitations
+
+### Viewing Invitations
+
+All pending invitations appear on the Members page:
+
+```ruby
+# app/controllers/members_controller.rb:12-13
+@pending_invitations = Current.account.team_invitations
+                               .order(created_at: :desc)
+```
+
+You can see:
+- Email address
+- Invitation date
+- Expiration status
+
+### Resending Invitations
+
+If an invitation expires or the recipient didn't receive it:
+
+<Steps>
+  <Step title="Locate the Invitation">
+    Find the pending invitation in your members list.
+  </Step>
+  
+  <Step title="Click Resend">
+    Initiate the resend action.
+    
+    <Note>
+      There's a 5-minute cooldown between resend attempts to prevent spam.
+    </Note>
+  </Step>
+  
+  <Step title="New Expiration Set">
+    The system:
+    - Updates expiration to 48 hours from now
+    - Resends the invitation email
+    - Updates the timestamp
+    
+    ```ruby
+    # app/controllers/team_invitations_controller.rb:54-57
+    @invitation.update!(expires_at: 48.hours.from_now)
+    @invitation.touch
+    ```
+  </Step>
+</Steps>
+
+### Revoking Invitations
+
+Admins can cancel pending invitations:
+
+1. Navigate to the Members page
+2. Find the pending invitation
+3. Click "Revoke" or delete
+4. The invitation is removed and the seat becomes available
+
+<Info>
+  Revoking an invitation immediately frees up a seat for new invitations.
+</Info>
+
+## Accepting Invitations
+
+### For Invited Users
+
+When you receive an invitation:
+
+<Steps>
+  <Step title="Receive Notification">
+    Check your email for the invitation from Trellixe.
+    
+    **Existing users also receive**:
+    - In-app notification
+    - Global notification (visible across all workspaces)
+  </Step>
+  
+  <Step title="Click the Invitation Link">
+    The email contains a secure token link:
+    
+    ```
+    /team_invitation_acceptance?token=SECURE_TOKEN
+    ```
+  </Step>
+  
+  <Step title="Accept or Decline">
+    Review the workspace details and choose to:
+    - **Accept**: Join the workspace as a member
+    - **Decline**: Reject the invitation
+  </Step>
+  
+  <Step title="Access the Workspace">
+    Upon acceptance:
+    - Membership is created with the Member role
+    - Invitation is deleted
+    - You can switch to the new workspace immediately
+  </Step>
+</Steps>
+
+### Acceptance Validation
+
+The system validates:
+- Token is valid and matches an invitation
+- Invitation has not expired
+- Email matches (for existing users)
+- User is not already a member
+
+## Error Scenarios
+
+### Seat Limit Reached
+
+```ruby
+# app/controllers/team_invitations_controller.rb:11-21
+if Current.account.seat_limit_reached?
+  msg = "Seat limit reached (#{Current.account.seat_limit}). Upgrade required."
+end
+```
+
+**Solution**: Remove inactive members, revoke unused invitations, or upgrade your plan.
+
+### Email Already Invited
+
+```ruby
+# app/models/team_invitation.rb:11
+validates :email, uniqueness: { scope: :account_id, 
+                                message: "has already been invited" }
+```
+
+**Solution**: Resend the existing invitation or revoke it and create a new one.
+
+### Email Already a Member
+
+```ruby
+# app/models/team_invitation.rb:24-28
+def email_not_already_member
+  if account.users.exists?(email: email)
+    errors.add(:email, "is already a member of this workspace")
+  end
+end
+```
+
+**Solution**: The user already has access. Check your members list.
+
+## Notifications
+
+### For Inviter (Admin)
+
+- Confirmation when invitation is sent
+- Notification when invitation is accepted
+
+### For Invitee
+
+- **Email**: Invitation details and acceptance link
+- **In-App** (if existing user): Global notification visible across workspaces
+
+<Info>
+  Global notifications are delivered without an `account_id`, making them visible regardless of which workspace you're viewing.
+</Info>
+
+## Best Practices
+
+<CardGroup cols={2}>
+  <Card title="Verify Email Addresses" icon="envelope-circle-check">
+    Double-check email addresses before sending to avoid wasted seats and confusion.
+  </Card>
+  
+  <Card title="Monitor Pending Invitations" icon="clock">
+    Regularly review pending invitations and revoke those that won't be accepted.
+  </Card>
+  
+  <Card title="Communicate Externally" icon="comments">
+    Let invitees know to expect an email, especially if they're new to Trellixe.
+  </Card>
+  
+  <Card title="Plan for Seats" icon="chair">
+    Ensure you have enough seats before running team onboarding sessions.
+  </Card>
+</CardGroup>
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Manage Members" icon="users" href="/team/members">
+    Learn how to manage active team members
+  </Card>
+  
+  <Card title="Roles & Permissions" icon="shield" href="/team/roles-permissions">
+    Understand member roles and access control
+  </Card>
+</CardGroup>

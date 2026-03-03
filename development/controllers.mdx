@@ -1,0 +1,713 @@
+---
+title: "Controller Architecture"
+description: "Controller structure, multi-tenant patterns, concerns, and request lifecycle in Trellixe"
+---
+
+## Controller Hierarchy
+
+Trellixe uses a layered controller architecture with inheritance to enforce authentication, multi-tenancy, and consistent behavior across the application.
+
+```
+ActionController::Base
+  └─ ApplicationController
+       └─ DashboardsController
+            ├─ ContactsController
+            ├─ EventsController
+            ├─ AccountsController
+            ├─ MembersController
+            └─ [other domain controllers]
+```
+
+## ApplicationController
+
+**Location:** `app/controllers/application_controller.rb`
+
+The root controller that establishes the request context and enforces authentication.
+
+### Callback Chain Order
+
+<Note>
+**Critical:** The order of these callbacks is essential for security and functionality.
+</Note>
+
+```ruby
+class ApplicationController < ActionController::Base
+  # 1. Set IP and User Agent
+  before_action :set_current_request_details
+  
+  # 2. Find the User from the Session cookie
+  before_action :set_current_user_from_session
+  
+  # 3. Find the Active Workspace (Requires User to be set first)
+  before_action :set_current_account
+  
+  # 4. Enforce Login (Redirect if no User)
+  before_action :authenticate
+  
+  # 5. Wraps request in time zone block
+  around_action :switch_time_zone, if: :current_user
+end
+```
+
+### Request Lifecycle
+
+```
+1. Request arrives
+   ↓
+2. set_current_request_details
+   Sets: Current.ip_address, Current.user_agent
+   ↓
+3. set_current_user_from_session
+   Finds: Session from signed cookie
+   Sets: Current.session → Current.user
+   ↓
+4. set_current_account
+   Finds: User's active workspace (from session or default)
+   Sets: Current.account
+   ↓
+5. authenticate
+   Redirects to sign_in if user not present
+   ↓
+6. switch_time_zone
+   Wraps request in user's timezone
+   ↓
+7. Controller action executes
+   ↓
+8. Response rendered
+   ↓
+9. Current.reset_all (automatic)
+```
+
+### Authentication Helpers
+
+```ruby
+# Available in all controllers and views
+helper_method :current_user, :user_signed_in?, :current_role, :admin?
+
+def current_user
+  Current.user
+end
+
+def user_signed_in?
+  current_user.present?
+end
+
+def current_role
+  return nil unless user_signed_in? && Current.account
+  @current_role ||= Current.user.memberships
+    .find_by(account: Current.account)&.role
+end
+
+def admin?
+  current_role == "admin"
+end
+```
+
+### Usage in Controllers
+
+```ruby
+class MembershipsController < DashboardsController
+  before_action :require_admin, only: [:destroy]
+  
+  private
+  
+  def require_admin
+    unless admin?
+      redirect_to root_path, alert: "Access denied."
+    end
+  end
+end
+```
+
+## SetCurrentRequestDetails Concern
+
+**Location:** `app/controllers/concerns/set_current_request_details.rb`
+
+Manages the workspace context for each request.
+
+```ruby
+module SetCurrentRequestDetails
+  extend ActiveSupport::Concern
+  
+  private
+  
+  def set_current_account
+    return unless user_signed_in?
+    
+    # 1. Check if user switched to a specific workspace
+    if session[:current_account_id]
+      # Security: Ensure user belongs to this account
+      Current.account = Current.user.accounts
+        .find_by(id: session[:current_account_id])
+    end
+    
+    # 2. Fallback: Default to their first account (usually Personal Workspace)
+    Current.account ||= Current.user.accounts.order(created_at: :asc).first
+    
+    # 3. Safety Net: Create personal workspace if none exists
+    if Current.account.nil?
+      Current.user.send(:create_personal_workspace)
+      Current.account = Current.user.accounts.first
+    end
+  end
+end
+```
+
+### Workspace Switching Flow
+
+```ruby
+# User clicks "Switch to Team Workspace" in UI
+# → POST /accounts/:public_id/switch
+
+class AccountsController < DashboardsController
+  def switch
+    target_account = Current.user.accounts.find_by_public_id!(params[:id])
+    session[:current_account_id] = target_account.id
+    redirect_back fallback_location: root_path
+  end
+end
+```
+
+<Info>
+Workspace switching uses the **integer `id`** in the session (for performance), but accepts **public_id** in URLs (for security). The controller translates between them.
+</Info>
+
+## DashboardsController
+
+**Location:** `app/controllers/dashboards_controller.rb`
+
+Base controller for all authenticated, workspace-scoped pages.
+
+```ruby
+class DashboardsController < ApplicationController
+  layout "dashboard"
+  
+  def show
+    @pending_follow_ups = current_user.follow_up_tasks
+      .where(completed_at: nil)
+      .order(due_at: :asc)
+      .limit(15)
+    
+    @upcoming_events = Current.account.events
+      .where("starts_at > ?", Time.current)
+      .order(starts_at: :asc)
+      .limit(15)
+  end
+end
+```
+
+**Key Characteristics:**
+- Uses `dashboard` layout (includes sidebar, nav, workspace switcher)
+- All domain controllers inherit from this
+- Already has authentication enforced
+
+## Multi-Tenant Controller Patterns
+
+### Pattern 1: Account-Scoped CRUD
+
+**ContactsController** demonstrates the standard pattern for account-scoped resources.
+
+**Location:** `app/controllers/contacts_controller.rb`
+
+```ruby
+class ContactsController < DashboardsController
+  before_action :set_contact, only: [:show, :edit, :update, :destroy]
+  
+  def index
+    # ✓ CORRECT: Scope to Current.account
+    records = Current.account.contacts.order(created_at: :desc)
+    @search = records.ransack(params[:q])
+    @pagy, @contacts = pagy(@search.result)
+  end
+  
+  def create
+    # ✓ CORRECT: Build from account association
+    @contact = Current.account.contacts.new(contact_params)
+    @contact.creator = current_user  # Track who created it
+    
+    if @contact.save
+      flash.now[:notice] = "Contact created."
+    else
+      flash.now[:alert] = @contact.errors.full_messages.to_sentence
+    end
+  end
+  
+  private
+  
+  def set_contact
+    # ✓ CRITICAL: Must find in Current.account, not current_user
+    # Otherwise Bob can't see contacts Alice created for the team
+    @contact = Current.account.contacts.find(params[:id])
+  end
+end
+```
+
+<Accordion title="Why scope through Current.account instead of using a default_scope?">
+**Explicit > Implicit:**
+
+```ruby
+# ✓ Trellixe approach (Explicit)
+Current.account.contacts.find(id)
+# - Clear intent
+# - Easy to debug
+# - No surprises in background jobs
+
+# ✗ Alternative approach (Implicit default_scope)
+Contact.find(id)  # Relies on hidden default_scope
+# - Magic behavior
+# - Breaks in Sidekiq jobs (Current.account is nil)
+# - Hard to intentionally bypass for admin features
+```
+</Accordion>
+
+### Pattern 2: Nested Resource Management
+
+**EventsController** shows how to handle resources with nested associations.
+
+**Location:** `app/controllers/events_controller.rb`
+
+```ruby
+class EventsController < DashboardsController
+  def show
+    @event = Current.account.events.find(params[:id])
+    
+    # Nested filtering of invitations
+    base_invitations = @event.invitations.includes(:contact)
+    @invitations_search = base_invitations.ransack(params[:q])
+    
+    # Calculate stats
+    raw_counts = @event.invitations.group(:status).count
+    @stats = {
+      total:    @event.invitations.count,
+      attended: raw_counts["attended"] || 0
+    }
+    
+    @pagy, @invitations = pagy(@invitations_search.result)
+  end
+  
+  def create
+    @event = Current.account.events.new(event_params)
+    
+    if @event.save
+      # Turbo Stream partial replacement
+      prepare_calendar_data
+      render :create
+    else
+      render :create, status: :unprocessable_entity
+    end
+  end
+  
+  private
+  
+  def prepare_calendar_data
+    @date = @event&.starts_at&.to_date || Date.today
+    
+    # ✓ CORRECT: Scope through Current.account
+    events_for_month = Current.account.events
+      .includes(:invitations)
+      .where(starts_at: @date.all_month)
+    
+    @events_by_date = events_for_month.group_by { |e| e.starts_at.to_date }
+  end
+end
+```
+
+### Pattern 3: Bulk Operations
+
+**Bulk actions** must carefully scope to the current account to prevent cross-tenant data access.
+
+```ruby
+class ContactsController < DashboardsController
+  def bulk_destroy
+    # 1. Capture IDs from params
+    @contact_ids = params[:contact_ids] || []
+    
+    # 2. ✓ CRITICAL: Re-scope to current account
+    # This prevents tampering - even if someone modifies the form
+    # to include contact IDs from another account, they'll be filtered out
+    contacts_to_delete = Current.account.contacts.where(id: @contact_ids)
+    count = contacts_to_delete.count
+    
+    if count > 0
+      contacts_to_delete.destroy_all
+      flash.now[:notice] = "Successfully deleted #{count} contacts."
+    else
+      flash.now[:alert] = "No contacts selected."
+    end
+  end
+  
+  def bulk_assign_event
+    @contact_ids = params[:contact_ids] || []
+    event_id = params[:event_id]
+    
+    # ✓ CRITICAL: Verify event belongs to current account
+    @event = Current.account.events.find(event_id)
+    
+    # Filter out contacts already invited
+    existing = @event.invitations.where(contact_id: @contact_ids)
+                     .pluck(:contact_id).map(&:to_s)
+    new_contact_ids = @contact_ids - existing
+    
+    # Batch insert for performance
+    if new_contact_ids.any?
+      timestamp = Time.current
+      invitations_attributes = new_contact_ids.map do |cid|
+        {
+          event_id: @event.id,
+          contact_id: cid,
+          created_at: timestamp,
+          updated_at: timestamp
+        }
+      end
+      
+      Invitation.insert_all(invitations_attributes)
+      flash.now[:notice] = "Added #{new_contact_ids.size} contacts."
+    end
+  end
+end
+```
+
+<Note>
+**Security Principle:** Always re-query using `Current.account` scope before performing bulk operations. Never trust IDs from user input alone.
+</Note>
+
+### Pattern 4: Permission-Based Actions
+
+**AccountsController** demonstrates role-based authorization.
+
+**Location:** `app/controllers/accounts_controller.rb`
+
+```ruby
+class AccountsController < DashboardsController
+  before_action :ensure_admin!, only: [:edit, :update, :destroy]
+  
+  def edit
+    @account = Current.account
+  end
+  
+  def update
+    @account = Current.account
+    
+    if @account.update(account_params)
+      redirect_to edit_account_path(@account), notice: "Workspace updated."
+    else
+      render :edit, status: :unprocessable_entity
+    end
+  end
+  
+  def destroy
+    @account = Current.account
+    
+    # 1. Password Challenge for sensitive operation
+    unless Current.user.authenticate(params[:password_challenge])
+      redirect_to edit_account_path(@account), 
+                  alert: "Incorrect password."
+      return
+    end
+    
+    # 2. Last Man Standing Rule
+    if Current.user.accounts.count == 1
+      redirect_to edit_account_path(@account),
+                  alert: "Cannot delete your only workspace."
+      return
+    end
+    
+    @account.destroy
+    session[:current_account_id] = nil
+    redirect_to root_path, notice: "Workspace deleted."
+  end
+  
+  private
+  
+  def ensure_admin!
+    unless admin?
+      redirect_to root_path, alert: "Access denied."
+    end
+  end
+end
+```
+
+**Authorization Levels:**
+
+| Action | Member | Admin |
+|--------|--------|-------|
+| View contacts/events | ✓ | ✓ |
+| Create contacts/events | ✓ | ✓ |
+| Edit workspace settings | ✗ | ✓ |
+| Invite team members | ✗ | ✓ |
+| Remove members | ✗ | ✓ |
+| Delete workspace | ✗ | ✓ |
+
+## Search and Filtering with Ransack
+
+Trellixe uses [Ransack](https://github.com/activerecord-hackery/ransack) for advanced search and filtering.
+
+### Basic Search Pattern
+
+```ruby
+def index
+  # 1. Start with account-scoped base query
+  records = Current.account.contacts.order(created_at: :desc)
+  
+  # 2. Apply Ransack search
+  @search = records.ransack(params[:q])
+  
+  # 3. Paginate results
+  @pagy, @contacts = pagy(@search.result)
+end
+```
+
+### Ransack Security
+
+**Models must whitelist searchable attributes:**
+
+```ruby
+class Contact < ApplicationRecord
+  def self.ransackable_attributes(auth_object = nil)
+    %w[id first_name last_name email phone_number created_at]
+  end
+  
+  def self.ransackable_associations(auth_object = nil)
+    %w[events]
+  end
+end
+```
+
+<Info>
+Without these methods, Ransack will reject all searches by default (security best practice).
+</Info>
+
+### Advanced: Date Range Filtering
+
+```ruby
+class EventsController < DashboardsController
+  def index
+    # Fix for end-of-day handling
+    if params[:q].present? && params[:q][:starts_at_lteq].present?
+      # "2024-03-15" → "2024-03-15 23:59:59"
+      end_date = Date.parse(params[:q][:starts_at_lteq]).end_of_day
+      params[:q][:starts_at_lteq] = end_date
+    end
+    
+    records = Current.account.events.upcoming
+    @search = records.ransack(params[:q])
+    @pagy, @events = pagy(@search.result)
+  end
+end
+```
+
+## Pagination with Pagy
+
+Trellixe uses [Pagy](https://github.com/ddnexus/pagy) for high-performance pagination.
+
+```ruby
+class ApplicationController < ActionController::Base
+  include Pagy::Backend
+end
+```
+
+### Usage
+
+```ruby
+def index
+  records = Current.account.contacts.order(created_at: :desc)
+  @pagy, @contacts = pagy(records, items: 25)
+end
+```
+
+### View Helpers
+
+```erb
+<!-- app/views/contacts/index.html.erb -->
+<div class="space-y-4">
+  <% @contacts.each do |contact| %>
+    <%= render contact %>
+  <% end %>
+</div>
+
+<%= pagy_nav(@pagy) if @pagy.pages > 1 %>
+```
+
+## Turbo Streams and Hotwire
+
+Trellixe uses Turbo for real-time updates without full page reloads.
+
+### Standard Turbo Response Pattern
+
+```ruby
+def create
+  @contact = Current.account.contacts.new(contact_params)
+  @contact.creator = current_user
+  
+  respond_to do |format|
+    if @contact.save
+      flash.now[:notice] = "Contact created."
+      format.turbo_stream
+    else
+      flash.now[:alert] = @contact.errors.full_messages.to_sentence
+      format.turbo_stream { render status: :unprocessable_entity }
+    end
+  end
+end
+```
+
+### Turbo Stream Views
+
+```erb
+<!-- app/views/contacts/create.turbo_stream.erb -->
+<%= turbo_stream.prepend "contacts_list", @contact %>
+<%= turbo_stream.update "contact_form", "" %>
+<%= turbo_stream.update "flash_messages", 
+      partial: "shared/flash" %>
+```
+
+## Security Best Practices
+
+### 1. Always Scope to Current Account
+
+```ruby
+# ✓ CORRECT
+@contact = Current.account.contacts.find(params[:id])
+
+# ✗ WRONG - Could leak data from other accounts
+@contact = Contact.find(params[:id])
+```
+
+### 2. Verify Ownership in Nested Resources
+
+```ruby
+def update_invitation
+  # ✓ Chain through account-scoped resources
+  @event = Current.account.events.find(params[:event_id])
+  @invitation = @event.invitations.find(params[:id])
+  
+  # Now safe to update
+  @invitation.update(invitation_params)
+end
+```
+
+### 3. Re-scope Bulk Operation IDs
+
+```ruby
+def bulk_destroy
+  # User submits: contact_ids = [1, 2, 999]
+  # Where 999 belongs to another account
+  
+  # ✓ CORRECT - Re-scope filters out unauthorized IDs
+  contacts = Current.account.contacts.where(id: params[:contact_ids])
+  contacts.destroy_all
+  
+  # ✗ WRONG - Would attempt to delete 999
+  Contact.where(id: params[:contact_ids]).destroy_all
+end
+```
+
+### 4. Use Strong Parameters
+
+```ruby
+private
+
+def contact_params
+  params.require(:contact).permit(
+    :first_name, 
+    :last_name, 
+    :email, 
+    :phone_number
+  )
+end
+```
+
+### 5. Verify Admin Role for Sensitive Operations
+
+```ruby
+before_action :require_admin, only: [:destroy, :update]
+
+private
+
+def require_admin
+  unless admin?
+    redirect_to root_path, alert: "Access denied."
+  end
+end
+```
+
+## Testing Controllers
+
+Example test structure for multi-tenant controllers:
+
+```ruby
+class ContactsControllerTest < ActionDispatch::IntegrationTest
+  setup do
+    @user = users(:alice)
+    @account = accounts(:acme_corp)
+    @membership = memberships(:alice_acme_admin)
+    
+    sign_in @user
+    switch_account @account
+  end
+  
+  test "index scopes to current account" do
+    other_contact = contacts(:from_different_account)
+    
+    get contacts_url
+    
+    assert_response :success
+    assert_select "[data-contact-id='#{@account.contacts.first.id}']"
+    assert_select "[data-contact-id='#{other_contact.id}']", count: 0
+  end
+  
+  test "cannot access other account's contacts" do
+    other_contact = contacts(:from_different_account)
+    
+    assert_raises ActiveRecord::RecordNotFound do
+      get contact_url(other_contact)
+    end
+  end
+end
+```
+
+## Common Patterns Reference
+
+### Loading Account-Scoped Resources
+
+```ruby
+# Index
+Current.account.contacts.all
+
+# Show
+Current.account.contacts.find(params[:id])
+
+# New
+Current.account.contacts.build
+
+# Create
+Current.account.contacts.create(params)
+```
+
+### Loading User-Scoped Resources
+
+```ruby
+# Follow-up tasks (user-specific)
+current_user.follow_up_tasks.where(completed_at: nil)
+
+# Notifications (user-specific, optionally account-filtered)
+current_user.notifications.where(
+  account_id: [Current.account.id, nil]
+)
+```
+
+### Combining Scopes
+
+```ruby
+# Contact history for current account
+@contact = Current.account.contacts.find(params[:id])
+@invitations = @contact.invitations
+  .joins(:event)
+  .where(events: { owner: Current.account })
+  .order("events.starts_at DESC")
+```
+
+## Related Documentation
+
+- [Data Models Overview](/development/models-overview) - Understanding the underlying model relationships
+- [Deployment Guide](/development/deployment) - Deploy the application with Kamal

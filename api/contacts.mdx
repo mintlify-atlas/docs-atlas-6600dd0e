@@ -1,0 +1,427 @@
+---
+title: Contacts API
+description: Manage contacts in your networking CRM with complete CRUD operations and bulk actions
+---
+
+## Overview
+
+The Contacts API allows you to manage your network contacts. All contacts are scoped to the current account (workspace), ensuring team-wide visibility.
+
+## List Contacts
+
+<CodeGroup>
+```bash GET /contacts
+curl -X GET "https://api.trellixe.com/contacts" \
+  -H "Authorization: Bearer YOUR_API_TOKEN"
+```
+</CodeGroup>
+
+Retrieve a paginated list of all contacts in your workspace.
+
+### Query Parameters
+
+<ParamField query="q[first_name_cont]" type="string">
+  Filter contacts by first name (partial match)
+</ParamField>
+
+<ParamField query="q[last_name_cont]" type="string">
+  Filter contacts by last name (partial match)
+</ParamField>
+
+<ParamField query="q[email_cont]" type="string">
+  Filter contacts by email (partial match)
+</ParamField>
+
+<ParamField query="q[how_we_met_cont]" type="string">
+  Filter by how you met the contact
+</ParamField>
+
+<ParamField query="page" type="integer" default="1">
+  Page number for pagination
+</ParamField>
+
+### Response
+
+<ResponseField name="contacts" type="array">
+  <ResponseField name="id" type="integer">
+    Unique identifier for the contact
+  </ResponseField>
+  
+  <ResponseField name="first_name" type="string" required>
+    Contact's first name
+  </ResponseField>
+  
+  <ResponseField name="last_name" type="string">
+    Contact's last name
+  </ResponseField>
+  
+  <ResponseField name="email" type="string">
+    Contact's email address
+  </ResponseField>
+  
+  <ResponseField name="phone_number" type="string">
+    Contact's phone number
+  </ResponseField>
+  
+  <ResponseField name="how_we_met" type="string">
+    Notes on how you met this contact
+  </ResponseField>
+  
+  <ResponseField name="creator_id" type="integer">
+    ID of the user who created this contact
+  </ResponseField>
+  
+  <ResponseField name="created_at" type="datetime">
+    Timestamp when the contact was created
+  </ResponseField>
+  
+  <ResponseField name="updated_at" type="datetime">
+    Timestamp when the contact was last updated
+  </ResponseField>
+</ResponseField>
+
+<CodeGroup>
+```json Response Example
+{
+  "contacts": [
+    {
+      "id": 1,
+      "first_name": "John",
+      "last_name": "Doe",
+      "email": "john.doe@example.com",
+      "phone_number": "+1-555-0123",
+      "how_we_met": "Tech conference 2025",
+      "creator_id": 5,
+      "created_at": "2026-02-15T10:30:00Z",
+      "updated_at": "2026-02-20T14:22:00Z"
+    }
+  ],
+  "pagination": {
+    "current_page": 1,
+    "total_pages": 5,
+    "total_count": 47
+  }
+}
+```
+</CodeGroup>
+
+---
+
+## Get Contact
+
+<CodeGroup>
+```bash GET /contacts/:id
+curl -X GET "https://api.trellixe.com/contacts/1" \
+  -H "Authorization: Bearer YOUR_API_TOKEN"
+```
+</CodeGroup>
+
+Retrieve a specific contact by ID, including their invitation history.
+
+### Path Parameters
+
+<ParamField path="id" type="integer" required>
+  The ID of the contact to retrieve
+</ParamField>
+
+### Response
+
+<CodeGroup>
+```json Response Example
+{
+  "id": 1,
+  "first_name": "John",
+  "last_name": "Doe",
+  "email": "john.doe@example.com",
+  "phone_number": "+1-555-0123",
+  "how_we_met": "Tech conference 2025",
+  "creator_id": 5,
+  "created_at": "2026-02-15T10:30:00Z",
+  "updated_at": "2026-02-20T14:22:00Z",
+  "invitations": [
+    {
+      "id": 42,
+      "event_id": 10,
+      "status": "attended",
+      "event_name": "Product Launch Party"
+    }
+  ]
+}
+```
+</CodeGroup>
+
+---
+
+## Create Contact
+
+<CodeGroup>
+```bash POST /contacts
+curl -X POST "https://api.trellixe.com/contacts" \
+  -H "Authorization: Bearer YOUR_API_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "contact": {
+      "first_name": "Jane",
+      "last_name": "Smith",
+      "email": "jane.smith@example.com",
+      "phone_number": "+1-555-0456",
+      "how_we_met": "Networking event downtown"
+    }
+  }'
+```
+</CodeGroup>
+
+Create a new contact in your workspace.
+
+### Request Body
+
+<ParamField body="contact" type="object" required>
+  <ParamField body="first_name" type="string" required>
+    Contact's first name (required)
+  </ParamField>
+  
+  <ParamField body="last_name" type="string">
+    Contact's last name
+  </ParamField>
+  
+  <ParamField body="email" type="string">
+    Contact's email address
+  </ParamField>
+  
+  <ParamField body="phone_number" type="string">
+    Contact's phone number
+  </ParamField>
+  
+  <ParamField body="how_we_met" type="string">
+    Notes on how you met this contact
+  </ParamField>
+</ParamField>
+
+### Response
+
+<CodeGroup>
+```json 201 Created
+{
+  "id": 2,
+  "first_name": "Jane",
+  "last_name": "Smith",
+  "email": "jane.smith@example.com",
+  "phone_number": "+1-555-0456",
+  "how_we_met": "Networking event downtown",
+  "creator_id": 5,
+  "created_at": "2026-03-03T09:15:00Z",
+  "updated_at": "2026-03-03T09:15:00Z"
+}
+```
+
+```json 422 Unprocessable Entity
+{
+  "errors": {
+    "first_name": ["can't be blank"]
+  }
+}
+```
+</CodeGroup>
+
+### Validations
+
+- `first_name` is required
+- Contact is automatically associated with the creator and current account
+
+---
+
+## Update Contact
+
+<CodeGroup>
+```bash PATCH /contacts/:id
+curl -X PATCH "https://api.trellixe.com/contacts/1" \
+  -H "Authorization: Bearer YOUR_API_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "contact": {
+      "email": "newemail@example.com",
+      "phone_number": "+1-555-9999"
+    }
+  }'
+```
+</CodeGroup>
+
+Update an existing contact's information.
+
+### Path Parameters
+
+<ParamField path="id" type="integer" required>
+  The ID of the contact to update
+</ParamField>
+
+### Request Body
+
+<ParamField body="contact" type="object" required>
+  <ParamField body="first_name" type="string">
+    Contact's first name
+  </ParamField>
+  
+  <ParamField body="last_name" type="string">
+    Contact's last name
+  </ParamField>
+  
+  <ParamField body="email" type="string">
+    Contact's email address
+  </ParamField>
+  
+  <ParamField body="phone_number" type="string">
+    Contact's phone number
+  </ParamField>
+  
+  <ParamField body="how_we_met" type="string">
+    Notes on how you met this contact
+  </ParamField>
+</ParamField>
+
+### Response
+
+<CodeGroup>
+```json 200 OK
+{
+  "id": 1,
+  "first_name": "John",
+  "last_name": "Doe",
+  "email": "newemail@example.com",
+  "phone_number": "+1-555-9999",
+  "how_we_met": "Tech conference 2025",
+  "updated_at": "2026-03-03T10:30:00Z"
+}
+```
+
+```json 422 Unprocessable Entity
+{
+  "errors": {
+    "first_name": ["can't be blank"]
+  }
+}
+```
+</CodeGroup>
+
+---
+
+## Delete Contact
+
+<CodeGroup>
+```bash DELETE /contacts/:id
+curl -X DELETE "https://api.trellixe.com/contacts/1" \
+  -H "Authorization: Bearer YOUR_API_TOKEN"
+```
+</CodeGroup>
+
+Permanently delete a contact from your workspace. This will also delete all associated invitations and interaction logs.
+
+### Path Parameters
+
+<ParamField path="id" type="integer" required>
+  The ID of the contact to delete
+</ParamField>
+
+### Response
+
+<CodeGroup>
+```json 200 OK
+{
+  "message": "Contact was successfully destroyed."
+}
+```
+</CodeGroup>
+
+---
+
+## Bulk Delete Contacts
+
+<CodeGroup>
+```bash DELETE /contacts/bulk_destroy
+curl -X DELETE "https://api.trellixe.com/contacts/bulk_destroy" \
+  -H "Authorization: Bearer YOUR_API_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "contact_ids": [1, 2, 3, 5, 8]
+  }'
+```
+</CodeGroup>
+
+Delete multiple contacts in a single operation.
+
+### Request Body
+
+<ParamField body="contact_ids" type="array" required>
+  Array of contact IDs to delete
+</ParamField>
+
+### Response
+
+<CodeGroup>
+```json 200 OK
+{
+  "message": "Successfully deleted 5 contacts."
+}
+```
+
+```json 400 Bad Request
+{
+  "error": "No contacts selected."
+}
+```
+</CodeGroup>
+
+---
+
+## Bulk Assign to Event
+
+<CodeGroup>
+```bash POST /contacts/bulk_assign_event
+curl -X POST "https://api.trellixe.com/contacts/bulk_assign_event" \
+  -H "Authorization: Bearer YOUR_API_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "contact_ids": [1, 2, 3],
+    "event_id": 10
+  }'
+```
+</CodeGroup>
+
+Assign multiple contacts to an event by creating invitations in bulk. Contacts already invited to the event will be skipped.
+
+### Request Body
+
+<ParamField body="contact_ids" type="array" required>
+  Array of contact IDs to invite
+</ParamField>
+
+<ParamField body="event_id" type="integer" required>
+  ID of the event to assign contacts to
+</ParamField>
+
+### Response
+
+<CodeGroup>
+```json 200 OK
+{
+  "message": "Successfully added 3 contacts to Product Launch Party."
+}
+```
+
+```json 400 Bad Request
+{
+  "error": "No contacts selected."
+}
+```
+
+```json 400 Bad Request
+{
+  "error": "Please select an event."
+}
+```
+
+```json 200 OK
+{
+  "message": "Selected contacts were already assigned to Product Launch Party."
+}
+```
+</CodeGroup>

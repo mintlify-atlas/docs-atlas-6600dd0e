@@ -1,0 +1,302 @@
+---
+title: Invitations API
+description: Manage event invitations and track contact attendance
+---
+
+## Overview
+
+The Invitations API manages the relationship between contacts and events. Each invitation represents a contact being invited to an event and can track attendance status. When a contact is marked as attended, a follow-up task is automatically created.
+
+## Create Invitations
+
+<CodeGroup>
+```bash POST /events/:event_id/invitations
+curl -X POST "https://api.trellixe.com/events/10/invitations" \
+  -H "Authorization: Bearer YOUR_API_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "invitation": {
+      "contact_ids": [1, 2, 3, 5]
+    }
+  }'
+```
+</CodeGroup>
+
+Invite multiple contacts to an event in a single request. Uses batch insertion for optimal performance.
+
+### Path Parameters
+
+<ParamField path="event_id" type="integer" required>
+  The ID of the event to create invitations for
+</ParamField>
+
+### Request Body
+
+<ParamField body="invitation" type="object" required>
+  <ParamField body="contact_ids" type="array" required>
+    Array of contact IDs to invite to the event. Empty strings are automatically filtered out.
+  </ParamField>
+</ParamField>
+
+### Response
+
+<CodeGroup>
+```json 201 Created
+{
+  "message": "4 invitations sent.",
+  "invitations": [
+    {
+      "id": 45,
+      "event_id": 10,
+      "contact_id": 1,
+      "contact_name": "John Doe",
+      "status": "invited",
+      "notes": null,
+      "created_at": "2026-03-03T10:30:00Z",
+      "updated_at": "2026-03-03T10:30:00Z"
+    }
+  ]
+}
+```
+
+```json 400 Bad Request
+{
+  "error": "No contacts were selected."
+}
+```
+</CodeGroup>
+
+### Notes
+
+- Duplicate invitations are prevented by database constraints (unique `contact_id` per `event_id`)
+- All invitations are created with `invited` status by default
+- Batch insertion is used for optimal performance when inviting multiple contacts
+
+---
+
+## Update Invitation
+
+<CodeGroup>
+```bash PATCH /invitations/:id
+curl -X PATCH "https://api.trellixe.com/invitations/45" \
+  -H "Authorization: Bearer YOUR_API_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "invitation": {
+      "status": "attended",
+      "notes": "Very interested in our product offering"
+    }
+  }'
+```
+</CodeGroup>
+
+Update an invitation's status and notes. Marking an invitation as "attended" automatically creates a follow-up task.
+
+### Path Parameters
+
+<ParamField path="id" type="integer" required>
+  The ID of the invitation to update
+</ParamField>
+
+### Request Body
+
+<ParamField body="invitation" type="object" required>
+  <ParamField body="status" type="string">
+    Invitation status: `invited` (0) or `attended` (1)
+  </ParamField>
+  
+  <ParamField body="notes" type="string">
+    Notes about this invitation or interaction
+  </ParamField>
+  
+  <ParamField body="contact_id" type="integer">
+    Contact ID (typically not changed after creation)
+  </ParamField>
+</ParamField>
+
+### Response
+
+<CodeGroup>
+```json 200 OK
+{
+  "id": 45,
+  "event_id": 10,
+  "contact_id": 1,
+  "status": "attended",
+  "notes": "Very interested in our product offering",
+  "updated_at": "2026-03-03T11:00:00Z"
+}
+```
+</CodeGroup>
+
+### Automatic Follow-Up Task Creation
+
+When an invitation status changes to `attended`, a follow-up task is automatically created:
+
+- Task is due 3 minutes after the event ends (in production, typically next day at 9 AM)
+- Only one task is created per invitation (duplicate prevention)
+- Task is assigned to the current user
+- A reminder notification is scheduled for the due date
+
+---
+
+## Delete Invitation
+
+<CodeGroup>
+```bash DELETE /invitations/:id
+curl -X DELETE "https://api.trellixe.com/invitations/45" \
+  -H "Authorization: Bearer YOUR_API_TOKEN"
+```
+</CodeGroup>
+
+Remove an invitation, uninviting a contact from an event.
+
+### Path Parameters
+
+<ParamField path="id" type="integer" required>
+  The ID of the invitation to remove
+</ParamField>
+
+### Response
+
+<CodeGroup>
+```json 200 OK
+{
+  "message": "Invitation was successfully removed."
+}
+```
+</CodeGroup>
+
+---
+
+## Bulk Update Invitations
+
+<CodeGroup>
+```bash PATCH /invitations/bulk_update
+curl -X PATCH "https://api.trellixe.com/invitations/bulk_update" \
+  -H "Authorization: Bearer YOUR_API_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "invitation_ids": [45, 46, 47, 48],
+    "status": "attended"
+  }'
+```
+</CodeGroup>
+
+Update the status of multiple invitations in a single operation. Useful for marking multiple contacts as attended after an event.
+
+### Request Body
+
+<ParamField body="invitation_ids" type="array" required>
+  Array of invitation IDs to update
+</ParamField>
+
+<ParamField body="status" type="string" required>
+  Target status for all invitations: `invited` or `attended`
+</ParamField>
+
+### Response
+
+<CodeGroup>
+```json 200 OK
+{
+  "message": "Marked 4 as Attended."
+}
+```
+
+```json 400 Bad Request
+{
+  "error": "No invitations selected."
+}
+```
+</CodeGroup>
+
+### Bulk Update Behavior
+
+- Invitations already in the target status are skipped (no redundant updates)
+- Follow-up tasks are automatically created for each invitation marked as `attended`
+- All updates happen within a database transaction for data consistency
+- Only invitations belonging to events in the current account can be updated (security)
+
+---
+
+## Invitation Status Enum
+
+Invitations use an enum for status tracking:
+
+<ResponseField name="status" type="enum">
+  <ResponseField name="invited" type="integer" value="0">
+    Contact has been invited but hasn't attended yet (default)
+  </ResponseField>
+  
+  <ResponseField name="attended" type="integer" value="1">
+    Contact attended the event (triggers follow-up task creation)
+  </ResponseField>
+</ResponseField>
+
+---
+
+## Validations
+
+<ParamField body="status" type="string" required>
+  Status is required for all invitations
+</ParamField>
+
+<ParamField body="contact_id" type="integer" required>
+  Must be unique per event (one invitation per contact per event)
+</ParamField>
+
+### Error Responses
+
+<CodeGroup>
+```json 422 Unprocessable Entity - Duplicate
+{
+  "errors": {
+    "contact_id": ["has already been taken"]
+  }
+}
+```
+
+```json 422 Unprocessable Entity - Validation
+{
+  "errors": {
+    "status": ["can't be blank"]
+  }
+}
+```
+</CodeGroup>
+
+---
+
+## Edit Invitation
+
+<CodeGroup>
+```bash GET /invitations/:id/edit
+curl -X GET "https://api.trellixe.com/invitations/45/edit" \
+  -H "Authorization: Bearer YOUR_API_TOKEN"
+```
+</CodeGroup>
+
+Retrieve invitation data for editing (typically used by web forms).
+
+### Path Parameters
+
+<ParamField path="id" type="integer" required>
+  The ID of the invitation to edit
+</ParamField>
+
+### Response
+
+<CodeGroup>
+```json Response Example
+{
+  "id": 45,
+  "event_id": 10,
+  "contact_id": 1,
+  "contact_name": "John Doe",
+  "event_name": "Product Launch Party",
+  "status": "invited",
+  "notes": null
+}
+```
+</CodeGroup>

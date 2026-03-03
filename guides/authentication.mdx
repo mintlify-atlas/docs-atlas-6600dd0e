@@ -1,0 +1,334 @@
+---
+title: 'Authentication'
+description: 'Complete guide to authentication in Trellixe including sign up, sign in, password management, and social login'
+---
+
+## Overview
+
+Trellixe provides a comprehensive authentication system with email/password authentication, social login via OAuth providers, email verification, and secure password reset functionality.
+
+## Sign Up
+
+### Creating an Account
+
+New users can register for Trellixe by providing:
+
+- **Email address** - Must be unique and valid (validated against RFC email format)
+- **Name** - Display name for the account
+- **Password** - Minimum 12 characters, checked against known breached passwords
+- **Password confirmation** - Must match the password
+- **Timezone** - Optional, for accurate time-based features
+
+<Steps>
+  <Step title="Navigate to Sign Up">
+    Visit `/sign_up` to access the registration form
+  </Step>
+  
+  <Step title="Complete Registration Form">
+    Fill in all required fields including email, name, and a strong password
+  </Step>
+  
+  <Step title="Automatic Workspace Creation">
+    Upon successful registration, Trellixe automatically creates a personal workspace for you (e.g., "David's Workspace")
+  </Step>
+  
+  <Step title="Email Verification">
+    A verification email is sent to your inbox. Check your email and click the verification link
+  </Step>
+</Steps>
+
+<Warning>
+  Passwords must be at least 12 characters long and cannot be commonly breached passwords. The system uses the Pwned Passwords database to prevent weak passwords.
+</Warning>
+
+### Email Verification
+
+Email verification is required for certain security-sensitive operations:
+
+- **Verification token expires in 2 days**
+- Verification links are sent via email upon registration
+- You can request a new verification email from `/identity/email_verification`
+- Once verified, the `verified` flag is set to `true` on your user account
+
+<Note>
+  Password reset functionality requires a verified email address for security reasons.
+</Note>
+
+## Sign In
+
+### Email and Password Login
+
+Existing users can sign in at `/sign_in` using their email and password.
+
+**Authentication Flow:**
+
+1. User submits email and password
+2. System authenticates credentials using `User.authenticate_by`
+3. On success, a new session is created
+4. Session token is stored in a secure, httponly cookie
+5. User is redirected to the dashboard
+
+```ruby
+# Session creation (sessions_controller.rb:14-16)
+if user = User.authenticate_by(email: params[:email], password: params[:password])
+  @session = user.sessions.create!
+  cookies.signed.permanent[:session_token] = { value: @session.id, httponly: true }
+end
+```
+
+<Tip>
+  Sessions are stored in the database, allowing users to manage multiple active sessions across different devices.
+</Tip>
+
+### Social Login (OAuth)
+
+Trellixe supports OAuth authentication through multiple providers using OmniAuth.
+
+**Supported Providers:**
+- Google
+- GitHub
+- Other OAuth 2.0 providers
+
+**OAuth Flow:**
+
+<Steps>
+  <Step title="Initiate OAuth">
+    User clicks a social login button that redirects to `/auth/:provider`
+  </Step>
+  
+  <Step title="Provider Authentication">
+    User authenticates with the OAuth provider (Google, GitHub, etc.)
+  </Step>
+  
+  <Step title="Callback Processing">
+    Provider redirects back to `/auth/:provider/callback` with user information
+  </Step>
+  
+  <Step title="User Creation or Lookup">
+    Trellixe finds or creates a user account based on the provider's UID and email
+  </Step>
+  
+  <Step title="Auto-verification">
+    OAuth users are automatically marked as verified since the provider confirms email ownership
+  </Step>
+  
+  <Step title="Session Creation">
+    A new session is created and the user is signed in
+  </Step>
+</Steps>
+
+```ruby
+# OAuth authentication (sessions/omniauth_controller.rb:5-10)
+@user = User.create_with(user_params).find_or_initialize_by(omniauth_params)
+
+if @user.save
+  session_record = @user.sessions.create!
+  cookies.signed.permanent[:session_token] = { value: session_record.id, httponly: true }
+end
+```
+
+<Note>
+  OAuth users have a random secure password generated automatically and are immediately verified.
+</Note>
+
+## Password Management
+
+### Changing Your Password
+
+Authenticated users can change their password from `/password/edit`.
+
+**Requirements:**
+- Must provide current password (password challenge)
+- New password must meet strength requirements (12+ characters)
+- Password confirmation must match
+
+```ruby
+# Password update (passwords_controller.rb:7-12)
+if @user.update(user_params)
+  redirect_to root_path, notice: "Your password has been changed"
+else
+  render :edit, status: :unprocessable_entity
+end
+```
+
+### Password Reset Flow
+
+Forgot your password? Trellixe provides a secure password reset mechanism.
+
+<Steps>
+  <Step title="Request Password Reset">
+    Visit `/identity/password_reset/new` and enter your email address
+  </Step>
+  
+  <Step title="Email Verification Check">
+    Only verified email addresses can request password resets for security
+  </Step>
+  
+  <Step title="Receive Reset Email">
+    A password reset email with a secure token is sent to your inbox
+  </Step>
+  
+  <Step title="Click Reset Link">
+    The link directs you to `/identity/password_reset/edit?sid=TOKEN`
+  </Step>
+  
+  <Step title="Set New Password">
+    Enter and confirm your new password
+  </Step>
+  
+  <Step title="Sign In">
+    After successfully resetting your password, sign in with your new credentials
+  </Step>
+</Steps>
+
+<Warning>
+  Password reset tokens expire after 20 minutes for security. If your token expires, you'll need to request a new reset email.
+</Warning>
+
+**Rate Limiting:**
+
+Password reset requests are rate-limited to prevent abuse:
+- Maximum 10 requests per hour per user
+- Exceeding the limit results in a temporary block
+
+```ruby
+# Rate limiting (identity/password_resets_controller.rb:4)
+rate_limit to: 10, within: 1.hour, only: :create
+```
+
+## Session Management
+
+### Viewing Active Sessions
+
+Users can view all active sessions at `/sessions`. This shows:
+- Device/browser information
+- Creation date
+- Current session indicator
+
+### Signing Out
+
+To sign out of a specific session:
+1. Navigate to `/sessions`
+2. Click "Sign Out" next to the session you want to terminate
+3. The session is destroyed and the device is logged out
+
+<Tip>
+  You can sign out of all other sessions while keeping your current session active, useful if you suspect unauthorized access.
+</Tip>
+
+## Security Features
+
+### Password Requirements
+
+<Accordion title="Password Security Measures">
+  - **Minimum length:** 12 characters
+  - **Breach detection:** Passwords checked against Pwned Passwords database
+  - **Secure hashing:** Uses `has_secure_password` (bcrypt)
+  - **Challenge verification:** Current password required for sensitive changes
+</Accordion>
+
+### Session Security
+
+- Sessions use signed, permanent cookies with httponly flag
+- Session tokens are cryptographically secure
+- Each device/browser gets its own session
+- Sessions are stored in the database for audit trail
+
+### Token-Based Operations
+
+Trellixe uses time-limited tokens for sensitive operations:
+
+| Operation | Token Expiry | Token Type |
+|-----------|--------------|------------|
+| Email Verification | 2 days | `email_verification` |
+| Password Reset | 20 minutes | `password_reset` |
+
+Tokens are generated using Rails' `generates_token_for` feature with unique salts.
+
+## Profile Settings
+
+### Updating Email Address
+
+Change your email at `/identity/email/edit`:
+
+1. Enter new email address
+2. Provide current password for verification
+3. Verification status is reset to `false`
+4. New verification email is sent
+5. Click verification link in email to confirm
+
+<Warning>
+  Changing your email address will unverify your account until you verify the new email. This temporarily restricts password reset functionality.
+</Warning>
+
+### Updating Display Name
+
+Update your name at `/identity/name/edit`. Name changes:
+- Don't require password confirmation
+- Update instantly via Turbo Stream
+- Reflect immediately across the application
+
+### Time Zone Settings
+
+Your timezone is automatically detected and can be updated at `/identity/time_zone`. This ensures:
+- Follow-up tasks show correct times
+- Event times display in your local timezone
+- Activity logs use appropriate timestamps
+
+<Note>
+  Time zone updates happen in the background without page refresh for a seamless experience.
+</Note>
+
+## Best Practices
+
+<Accordion title="Authentication Security Best Practices">
+  1. **Use strong passwords:** Always use the maximum password length possible
+  2. **Verify your email:** Complete email verification immediately after sign up
+  3. **Monitor active sessions:** Regularly review your active sessions at `/sessions`
+  4. **Sign out unused sessions:** Remove sessions from devices you no longer use
+  5. **Use social login:** OAuth providers add an extra layer of security
+  6. **Keep email current:** Ensure your email address is always accessible for account recovery
+</Accordion>
+
+## Troubleshooting
+
+### Can't Reset Password
+
+**Problem:** "You can't reset your password until you verify your email"
+
+**Solution:** Your email address must be verified first. Check your inbox for the verification email or request a new one.
+
+### Verification Link Expired
+
+**Problem:** "That email verification link is invalid"
+
+**Solution:** Verification links expire after 2 days. Request a new verification email from `/identity/email_verification`.
+
+### Password Reset Token Invalid
+
+**Problem:** "That password reset link is invalid"
+
+**Solution:** Reset tokens expire after 20 minutes. Request a new password reset from `/identity/password_reset/new`.
+
+### Too Many Reset Requests
+
+**Problem:** Rate limit error when requesting password reset
+
+**Solution:** You've exceeded 10 reset requests in one hour. Wait before trying again.
+
+## API Routes Reference
+
+| Route | Method | Purpose |
+|-------|--------|----------|
+| `/sign_up` | GET/POST | User registration |
+| `/sign_in` | GET/POST | User login |
+| `/sessions` | GET | List active sessions |
+| `/sessions/:id` | DELETE | Sign out specific session |
+| `/password/edit` | GET/PATCH | Change password |
+| `/identity/email/edit` | GET/PATCH | Update email |
+| `/identity/name/edit` | GET/PATCH | Update name |
+| `/identity/email_verification` | GET/POST | Verify email |
+| `/identity/password_reset/new` | GET/POST | Request reset |
+| `/identity/password_reset/edit` | GET/PATCH | Reset password |
+| `/identity/time_zone` | PATCH | Update timezone |
+| `/auth/:provider/callback` | GET/POST | OAuth callback |

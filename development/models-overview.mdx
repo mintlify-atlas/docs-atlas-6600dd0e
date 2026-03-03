@@ -1,0 +1,458 @@
+---
+title: "Data Models Overview"
+description: "Comprehensive guide to Trellixe's multi-tenant data architecture, model relationships, and polymorphic associations"
+---
+
+## Architecture Overview
+
+Trellixe implements a **multi-tenant architecture** where multiple users can collaborate within shared workspaces (Accounts) while maintaining data isolation. The application is built on Rails 8 with a sophisticated relationship structure supporting polymorphic ownership and through associations.
+
+### Multi-Tenant Design Pattern
+
+The multi-tenancy system uses a **many-to-many relationship** between Users and Accounts through a Membership join table:
+
+```
+User ←→ Membership ←→ Account
+```
+
+This design allows:
+- Users to belong to multiple workspaces
+- Workspaces to have multiple team members
+- Role-based permissions (admin, member)
+- Seamless workspace switching
+
+<Info>
+The `Current.account` attribute (via `ActiveSupport::CurrentAttributes`) provides request-scoped access to the active workspace, ensuring all queries are automatically scoped to the correct tenant.
+</Info>
+
+## Core Domain Models
+
+### Account (Workspace)
+
+**Location:** `app/models/account.rb`
+
+The central tenant model representing a workspace or organization.
+
+```ruby
+class Account < ApplicationRecord
+  include PublicIdentifiable
+  has_public_id prefix: "acct"
+
+  # Multi-tenancy relationships
+  has_many :memberships, dependent: :destroy
+  has_many :users, through: :memberships
+  has_many :team_invitations, dependent: :destroy
+
+  # Polymorphic ownership of domain data
+  has_many :contacts, as: :owner, dependent: :destroy
+  has_many :events, as: :owner, dependent: :destroy
+end
+```
+
+**Key Features:**
+- **Public IDs:** Uses collision-resistant public identifiers (e.g., `acct_a3Bx9Zk2mN4p`)
+- **Polymorphic Owner:** Owns contacts and events through polymorphic associations
+- **Seat Management:** Tracks `seat_limit` and `seats_used` for billing
+- **Personal Workspaces:** Automatically created for new users
+
+### User
+
+**Location:** `app/models/user.rb`
+
+Represents individual users who can belong to multiple accounts.
+
+```ruby
+class User < ApplicationRecord
+  include PublicIdentifiable
+  has_public_id prefix: "user"
+  has_secure_password
+
+  # Multi-tenancy
+  has_many :memberships, dependent: :destroy
+  has_many :accounts, through: :memberships
+  
+  # Personal assignments
+  has_many :follow_up_tasks, dependent: :destroy
+  has_many :sessions, dependent: :destroy
+  has_many :notifications, as: :recipient
+end
+```
+
+**Lifecycle Hooks:**
+- `after_create :create_personal_workspace` - Auto-creates a personal workspace on signup
+- Validates email uniqueness and password strength (minimum 12 characters)
+- Checks passwords against Pwned Passwords database
+
+<Note>
+Users have **personal follow-up tasks** that are user-specific, not account-scoped. This allows individuals to manage their own networking activities across all workspaces.
+</Note>
+
+### Membership
+
+**Location:** `app/models/membership.rb`
+
+Join table managing the many-to-many relationship between Users and Accounts.
+
+```ruby
+class Membership < ApplicationRecord
+  belongs_to :user
+  belongs_to :account
+  
+  enum :role, { member: "member", admin: "admin" }, default: :member
+  validates :user_id, uniqueness: { scope: :account_id }
+end
+```
+
+**Roles:**
+- `member` - Standard access (view/edit contacts, events)
+- `admin` - Full workspace management (settings, invitations, billing)
+
+## CRM Domain Models
+
+### Contact
+
+**Location:** `app/models/contact.rb`
+
+Represents individuals in the user's network.
+
+```ruby
+class Contact < ApplicationRecord
+  belongs_to :owner, polymorphic: true
+  belongs_to :creator, class_name: "User"
+  
+  has_many :invitations, dependent: :destroy
+  has_many :events, through: :invitations
+  has_many :interaction_logs, dependent: :destroy
+end
+```
+
+**Polymorphic Ownership:**
+- `owner_type: "Account"` - Shared team contacts
+- Contacts are scoped to `Current.account` in controllers
+- Creator tracking maintains audit trail
+
+### Event
+
+**Location:** `app/models/event.rb`
+
+Represents networking events, meetings, or gatherings.
+
+```ruby
+class Event < ApplicationRecord
+  belongs_to :owner, polymorphic: true
+  
+  has_many :invitations, dependent: :destroy
+  has_many :invited_contacts, through: :invitations, source: :contact
+  has_many :follow_up_tasks, through: :invitations
+  
+  # Optimized scopes
+  scope :past, -> { where("#{sql_ends_at} < ?", Time.current) }
+  scope :upcoming, -> { where("#{sql_ends_at} >= ?", Time.current) }
+  scope :in_range, ->(start_date, end_date) { where(starts_at: start_date..end_date) }
+end
+```
+
+**Calculated Fields:**
+- `ends_at` - Virtual attribute: `starts_at + duration_in_minutes.minutes`
+- Uses PostgreSQL interval math for efficient database-level filtering
+
+### Invitation
+
+**Location:** `app/models/invitation.rb`
+
+Join table connecting Contacts to Events with RSVP status.
+
+```ruby
+class Invitation < ApplicationRecord
+  belongs_to :contact
+  belongs_to :event
+  
+  has_many :follow_up_tasks, dependent: :destroy
+  
+  enum :status, { invited: 0, attended: 1 }
+  validates :contact_id, uniqueness: { scope: :event_id }
+end
+```
+
+**Relationship Chain:**
+```
+Contact → Invitation → Event → Account
+         ↓
+    FollowUpTask → User
+         ↓
+    InteractionLog
+```
+
+### FollowUpTask
+
+**Location:** `app/models/follow_up_task.rb`
+
+**Personal user assignments** for networking follow-ups after events.
+
+```ruby
+class FollowUpTask < ApplicationRecord
+  belongs_to :invitation
+  belongs_to :user
+  
+  has_many :interaction_logs, dependent: :destroy
+  has_one :contact, through: :invitation
+  has_one :event, through: :invitation
+  
+  after_create_commit :schedule_first_reminder
+end
+```
+
+**Important:** Follow-up tasks are **user-scoped**, not account-scoped. This allows individuals to track their personal networking activities independently.
+
+### InteractionLog
+
+**Location:** `app/models/interaction_log.rb`
+
+Records of communications and interactions with contacts.
+
+```ruby
+class InteractionLog < ApplicationRecord
+  belongs_to :contact
+  belongs_to :user
+  belongs_to :follow_up_task
+  
+  validates :note, presence: true
+end
+```
+
+## Team Management Models
+
+### TeamInvitation
+
+**Location:** `app/models/team_invitation.rb`
+
+Manages pending invitations to join a workspace.
+
+```ruby
+class TeamInvitation < ApplicationRecord
+  include PublicIdentifiable
+  has_public_id prefix: "tinv"
+  
+  belongs_to :account
+  has_secure_token :token
+  
+  validates :email, uniqueness: { scope: :account_id }
+  validate :email_not_already_member
+end
+```
+
+**Security Features:**
+- Expires after 48 hours
+- Prevents duplicate invitations
+- Validates email is not already a member
+- Uses secure random tokens for acceptance URLs
+
+<Accordion title="TeamInvitation vs Invitation">
+**Two Different Models:**
+- `TeamInvitation` - Inviting users to join a workspace/account
+- `Invitation` - Inviting contacts to events (RSVP tracking)
+
+Do not confuse these two distinct concepts in the codebase.
+</Accordion>
+
+## Model Concerns
+
+### PublicIdentifiable
+
+**Location:** `app/models/concerns/public_identifiable.rb`
+
+Provides collision-resistant public IDs for models exposed in URLs.
+
+```ruby
+module PublicIdentifiable
+  ALPHABET = "123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz"
+  
+  included do
+    before_create :generate_public_id
+  end
+  
+  class_methods do
+    def has_public_id(prefix:)
+      self.public_id_prefix = prefix
+    end
+  end
+end
+```
+
+**Benefits:**
+- **Security:** Prevents enumeration attacks
+- **Uniqueness:** 58^12 = 1.7 quindecillion combinations
+- **Readability:** Excludes confusing characters (0, O, I, l)
+- **URL-friendly:** Overrides `to_param` for clean routes
+
+**Usage Examples:**
+```ruby
+# app/models/account.rb
+has_public_id prefix: "acct"  # acct_a3Bx9Zk2mN4p
+
+# app/models/user.rb  
+has_public_id prefix: "user"  # user_z8Yx3Kp7mQ2n
+
+# app/models/membership.rb
+has_public_id prefix: "mem"   # mem_k4Tp9Xm6nR8s
+```
+
+### AccountScoped
+
+**Location:** `app/models/concerns/account_scoped.rb`
+
+Provides automatic scoping to the current account context.
+
+```ruby
+module AccountScoped
+  extend ActiveSupport::Concern
+  
+  included do
+    belongs_to :account
+    default_scope { where account: Current.account }
+  end
+end
+```
+
+<Note>
+**Currently unused in the codebase.** Trellixe uses explicit `Current.account` scoping in controllers instead of default scopes to avoid common pitfalls with default_scope. Consider this pattern carefully before implementing.
+</Note>
+
+## Request Context: Current
+
+**Location:** `app/models/current.rb`
+
+Manages request-scoped state using `ActiveSupport::CurrentAttributes`.
+
+```ruby
+class Current < ActiveSupport::CurrentAttributes
+  attribute :session
+  attribute :user_agent, :ip_address
+  attribute :account
+  
+  delegate :user, to: :session, allow_nil: true
+end
+```
+
+**Usage Throughout Controllers:**
+```ruby
+Current.user      # Currently authenticated user
+Current.account   # Active workspace
+Current.session   # Session record
+Current.ip_address # Request IP
+```
+
+**Lifecycle:**
+1. Request arrives
+2. `set_current_user_from_session` finds Session from cookie
+3. `set_current_account` loads active workspace from user's memberships
+4. All subsequent queries use `Current.account.contacts`, `Current.account.events`, etc.
+5. Request completes, `Current` attributes reset automatically
+
+## Complete Entity Relationship Diagram
+
+```
+┌─────────┐         ┌────────────┐         ┌─────────┐
+│  User   │←───────→│ Membership │←───────→│ Account │
+└────┬────┘         └────────────┘         └────┬────┘
+     │                                           │
+     │ has_many                   polymorphic    │
+     │ follow_up_tasks            owner (1:N)    │
+     │                                           ├────→ Contact
+     │                                           └────→ Event
+     │                                                      │
+     │                                                      │
+     │              ┌────────────┐                          │
+     │              │ Invitation │←─────────────────────────┘
+     │              └──────┬─────┘
+     │                     │
+     │                     │ belongs_to
+     │                     ↓
+     │              ┌──────────────┐
+     └─────────────→│ FollowUpTask │
+                    └──────┬───────┘
+                           │
+                           │ has_many
+                           ↓
+                    ┌─────────────────┐
+                    │ InteractionLog  │
+                    └─────────────────┘
+```
+
+## Model Characteristics Summary
+
+| Model | Public ID | Account Scoped | Polymorphic | Multi-Tenant |
+|-------|-----------|----------------|-------------|---------------|
+| Account | ✓ (acct_) | N/A (root) | No | Root Tenant |
+| User | ✓ (user_) | No | No | Cross-tenant |
+| Membership | ✓ (mem_) | No | No | Join table |
+| Contact | No | Yes | Yes (owner) | Yes |
+| Event | No | Yes | Yes (owner) | Yes |
+| Invitation | No | Via Event | No | Inherited |
+| FollowUpTask | No | **No** | No | **User-scoped** |
+| InteractionLog | No | Via Task | No | Inherited |
+| TeamInvitation | ✓ (tinv_) | Yes | No | Yes |
+
+## Key Architectural Decisions
+
+<Accordion title="Why polymorphic ownership?">
+Polymorphic associations (`owner_type`, `owner_id`) allow future extensibility. While currently only Accounts own Contacts and Events, the architecture supports potential future use cases like:
+- Personal contacts (User as owner)
+- Sub-organizations or teams
+- Partner accounts
+</Accordion>
+
+<Accordion title="Why are FollowUpTasks user-scoped?">
+Follow-up tasks represent **personal commitments** to reach out to contacts. Even in a team workspace:
+- Alice creates her own follow-up tasks
+- Bob creates his own follow-up tasks
+- They don't share task lists (privacy)
+- Both can see the same contacts and events (collaboration)
+</Accordion>
+
+<Accordion title="Why not use default_scope for multi-tenancy?">
+Trellixe explicitly scopes queries in controllers (`Current.account.contacts`) rather than using `default_scope` because:
+- **Predictability:** Easier to debug and understand query behavior
+- **Flexibility:** Some queries intentionally cross accounts (admin features)
+- **Safety:** Avoids accidental scope leaks in background jobs
+- **Testing:** Simpler to test without fighting default scopes
+</Accordion>
+
+## Best Practices
+
+### Creating Account-Scoped Records
+
+```ruby
+# ✓ CORRECT - Always scope through Current.account
+@contact = Current.account.contacts.create(contact_params)
+@event = Current.account.events.new(event_params)
+
+# ✗ WRONG - Never create without explicit scoping
+@contact = Contact.create(contact_params)
+```
+
+### Querying Account-Scoped Records
+
+```ruby
+# ✓ CORRECT - Scope through association
+@contacts = Current.account.contacts.where(created_at: ...)
+@events = Current.account.events.upcoming
+
+# ✗ WRONG - Missing account scope
+@contacts = Contact.where(created_at: ...)
+```
+
+### User-Scoped Records
+
+```ruby
+# ✓ CORRECT - Follow-up tasks belong to user
+@tasks = current_user.follow_up_tasks.where(completed_at: nil)
+
+# ✗ WRONG - Don't scope tasks to account
+@tasks = Current.account.follow_up_tasks # This association doesn't exist!
+```
+
+## Related Documentation
+
+- [Controller Patterns](/development/controllers) - Learn how controllers enforce multi-tenancy
+- [Deployment Guide](/development/deployment) - Deploy your multi-tenant application

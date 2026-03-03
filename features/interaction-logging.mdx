@@ -1,0 +1,302 @@
+---
+title: Interaction Logging
+description: Track and document all interactions with your contacts, building a comprehensive history of your professional relationships.
+---
+
+Interaction logging in Trellixe creates a permanent record of your conversations and touchpoints with contacts. This relationship history helps you maintain continuity, personalize future interactions, and measure the effectiveness of your networking efforts.
+
+## What is an Interaction Log?
+
+An interaction log is a record that captures:
+
+- **Contact** - Who you interacted with
+- **User** - Which team member had the interaction
+- **Follow-up Task** - The task that prompted this interaction
+- **Event Context** - The event that led to this follow-up (through the task relationship)
+- **Note** - Detailed description of what happened (required)
+- **Timestamp** - When the log was created
+
+Each log is associated with a follow-up task, creating a chain from event attendance → task → interaction log that preserves full context.
+
+## Creating Interaction Logs
+
+Interaction logs are typically created by completing follow-up tasks:
+
+<Steps>
+  <Step title="Access Follow-up Task">
+    Navigate to your Follow-up Tasks page from the main navigation menu.
+  </Step>
+  
+  <Step title="Select Task to Complete">
+    Click the "Log Follow-up" button for the task you want to complete.
+  </Step>
+  
+  <Step title="Review Context">
+    On the logging form, review the provided context:
+    - **How you met** - Information from the contact's profile
+    - **Event notes** - Any notes added when they were marked as attended
+    
+    This context helps you personalize your outreach before making contact.
+  </Step>
+  
+  <Step title="Make Contact">
+    Call, email, or message the contact using the information in their profile.
+  </Step>
+  
+  <Step title="Document the Interaction">
+    In the "How did it go?" text area, record:
+    - Whether you reached them and how (call, email, etc.)
+    - What was discussed
+    - Their responses or reactions
+    - Any follow-up actions agreed upon
+    - Next steps or opportunities identified
+    - Personal details to remember for future interactions
+  </Step>
+  
+  <Step title="Save and Complete">
+    Click "Save Log and Complete Task" to:
+    - Create the interaction log
+    - Mark the follow-up task as complete
+    - Add the log to the contact's history
+    - Remove the task from your queue
+  </Step>
+</Steps>
+
+<Note>
+The note field is required. You cannot create an interaction log without documenting what happened. This ensures your relationship history remains meaningful and useful.
+</Note>
+
+## Atomic Task Completion
+
+Interaction logs and task completion happen together in a database transaction:
+
+```ruby
+ActiveRecord::Base.transaction do
+  @interaction_log.save!
+  @follow_up_task.update!(completed_at: Time.current)
+end
+```
+
+This ensures:
+- Either both actions succeed, or neither does
+- You cannot complete a task without logging the interaction
+- Data consistency is maintained
+- The relationship between logs and tasks is always valid
+
+<Warning>
+If the interaction log fails validation (missing note), the task will NOT be marked complete, and you'll see an error message. Both operations must succeed together.
+</Warning>
+
+## Viewing Interaction Logs
+
+Interaction logs appear in multiple places throughout Trellixe:
+
+### Contact Profile Page
+
+The most comprehensive view is on the contact's profile:
+
+1. Navigate to any contact's profile page
+2. Click on the "Interaction History" tab
+3. View all logged interactions with this contact, showing:
+   - User avatar and name who logged the interaction
+   - Date and time of the log
+   - Event that led to this follow-up
+   - Full interaction notes
+   - Time elapsed since the interaction ("3 days ago")
+
+Logs are displayed chronologically with the most recent at the top.
+
+### Event Detail Page
+
+Events show follow-up activity resulting from that event:
+
+1. Navigate to any event's detail page
+2. Scroll to the "Follow-up Activity" section
+3. View all interactions logged for follow-ups from this event
+4. Each entry shows:
+   - Team member who completed the follow-up
+   - Contact they followed up with (linked to profile)
+   - Interaction notes
+   - How long ago it occurred
+
+This view helps you measure the ROI and relationship outcomes from specific events.
+
+### Follow-up Task Detail
+
+While completing a task, you can see:
+- Previous event notes that were added when the contact was marked as attended
+- Contact context (how you met)
+- Link to the contact's full profile
+
+## Interaction Log Associations
+
+Understanding the data relationships helps you use the system effectively:
+
+```
+Event
+  ↓ has_many
+Invitation (links Event ↔ Contact)
+  ↓ has_many
+FollowUpTask
+  ↓ has_many
+InteractionLog
+```
+
+Each interaction log is connected to:
+- **Contact** (directly) - Who you interacted with
+- **User** (directly) - Who logged the interaction
+- **FollowUpTask** (directly) - The task this log completes
+- **Event** (through task → invitation) - The originating event
+- **Invitation** (through task) - The specific invitation that created the task
+
+This chain preserves full context for every interaction.
+
+## What to Include in Interaction Notes
+
+Write notes that will be valuable when you or a teammate interacts with this contact again:
+
+<Accordion title="Good Interaction Note Examples">
+**Example 1: Successful Call**
+```
+Called Sarah on 3/15. Had a great 15-minute conversation. She's interested in learning more about our product for her team. We discussed their current challenges with manual data entry and she sees value in automation. Scheduled a demo for 3/22 at 2pm. She mentioned she's training for a marathon - good personal connection point.
+```
+
+**Example 2: Email Follow-up**
+```
+Sent follow-up email with the resource we discussed at the event. Got a quick reply thanking me. He shared the doc with his co-founder and said they'll review it before our next quarterly meetup. No immediate action needed, but good continued rapport.
+```
+
+**Example 3: Voicemail**
+```
+Left voicemail at 555-0123. Mentioned we met at the Q1 dinner and I wanted to follow up on his question about integration options. Asked him to call back or email when convenient. Will try again in 3 days if I don't hear back.
+```
+</Accordion>
+
+<Accordion title="What to Avoid">
+**Too brief:**
+```
+Called them.
+```
+
+**No outcome recorded:**
+```
+Talked about stuff.
+```
+
+**Missing next steps:**
+```
+Good conversation about the product.
+```
+
+These notes don't provide enough context for future interactions or for other team members.
+</Accordion>
+
+## Interaction Log Persistence
+
+Interaction logs are permanent records:
+
+- **Not editable** - Once created, logs cannot be modified (preserving accurate history)
+- **Not deletable individually** - Logs remain as long as the contact exists
+- **Cascade deletion** - Logs are automatically deleted if:
+  - The contact is deleted (`has_many :interaction_logs, dependent: :destroy` on Contact)
+  - The follow-up task is deleted (`has_many :interaction_logs, dependent: :destroy` on FollowUpTask)
+
+<Warning>
+Deleting a contact or follow-up task will permanently remove associated interaction logs. These deletions cannot be undone. Export or back up important relationship history before deleting contacts.
+</Warning>
+
+## Searching Interaction History
+
+While Trellixe doesn't currently provide full-text search across interaction logs, you can:
+
+1. **Filter by contact** - View all interactions with a specific person on their profile page
+2. **Filter by event** - See all follow-up activity from a specific event on its detail page
+3. **Filter by date** - Use event date filters to find interactions from a specific time period
+4. **Filter by user** - Ask your administrator about queries to find all logs created by a specific team member
+
+## Team Collaboration
+
+Interaction logs enable effective team collaboration:
+
+### Visibility
+
+- All team members can view all interaction logs for contacts in your account
+- Logs clearly show which user created them (with avatar and name)
+- This transparency prevents duplicate outreach
+
+### Continuity
+
+When a teammate needs to interact with a contact:
+
+1. They review the interaction history on the contact's profile
+2. They see what's already been discussed
+3. They understand the relationship stage and context
+4. They can continue the conversation naturally without redundancy
+
+### Accountability
+
+Interaction logs create accountability:
+
+- Managers can see follow-up activity from events
+- Teams can measure networking ROI
+- Individual contributions are tracked and visible
+
+## Best Practices
+
+<Accordion title="Log Immediately">
+Create interaction logs right after the interaction while details are fresh. Don't wait days or weeks, as you'll forget important nuances that make notes valuable.
+</Accordion>
+
+<Accordion title="Be Specific">
+Include specific details:
+- Names of tools, products, or people mentioned
+- Dates of scheduled next steps
+- Direct quotes if particularly meaningful
+- Personal details shared (appropriate ones)
+- Outcomes or decisions made
+</Accordion>
+
+<Accordion title="Write for Your Team">
+Remember that others will read these notes. Write clearly and include context that helps teammates understand the relationship state, not just what you personally remember.
+</Accordion>
+
+<Accordion title="Note Unsuccessful Attempts">
+Log when you can't reach someone too:
+- Left voicemail
+- Sent email with no response
+- Wrong number
+
+This helps prevent duplicate attempts and informs strategy for future outreach.
+</Accordion>
+
+<Accordion title="Include Next Steps">
+Always end your note with next steps:
+- "Scheduled demo for [date]"
+- "Will try again in 1 week"
+- "Waiting for them to email with availability"
+- "No further action needed"
+
+This helps you and your team know what to expect.
+</Accordion>
+
+## Privacy and Data Considerations
+
+When logging interactions:
+
+- Avoid including sensitive personal information unless necessary
+- Don't record information the contact specifically asked to keep confidential
+- Remember that all team members can view logs
+- Consider your company's data retention and privacy policies
+- Be professional in tone and content
+
+## Measuring Networking Effectiveness
+
+Interaction logs help you analyze your networking ROI:
+
+- **Event follow-up rate** - What percentage of attendees get followed up with?
+- **Conversion tracking** - Which events lead to meaningful business outcomes?
+- **Response rates** - Who responds to follow-up and who doesn't?
+- **Team activity** - Are all team members following up consistently?
+- **Relationship depth** - Which contacts have rich, ongoing interaction histories?
+
+Review interaction logs regularly to identify patterns and improve your networking strategy.

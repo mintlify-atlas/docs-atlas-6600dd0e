@@ -1,0 +1,559 @@
+---
+title: Installation & Setup
+description: Complete setup guide for Trellixe including account configuration, team management, and workspace settings
+---
+
+# Installation & Setup
+
+This guide covers everything you need to get Trellixe properly configured for you and your team, from initial account setup to advanced workspace management.
+
+## System Requirements
+
+Trellixe is a cloud-based web application. All you need is:
+
+- A modern web browser (Chrome, Firefox, Safari, or Edge)
+- Internet connection
+- Valid email address
+
+<Info>
+  **No downloads or installations required** - Access Trellixe from any device with a web browser. Your data syncs automatically across all devices.
+</Info>
+
+## Initial Account Setup
+
+### Create Your Account
+
+<Steps>
+  <Step title="Visit the Registration Page">
+    Navigate to `/sign_up` to access the registration form.
+  </Step>
+  
+  <Step title="Complete Registration Form">
+    Provide the following information:
+    
+    ```ruby
+    # User registration parameters:
+    params.permit(
+      :email,              # Your email address (required)
+      :name,               # Your full name (required)
+      :password,           # Choose a secure password (required)
+      :password_confirmation,  # Confirm your password
+      :timezone            # Your timezone (optional, auto-detected)
+    )
+    ```
+  </Step>
+  
+  <Step title="Automatic Login">
+    After successful registration:
+    
+    - A session is automatically created
+    - You're logged in with a secure cookie
+    - You're redirected to the dashboard
+    - A verification email is sent to your inbox
+  </Step>
+</Steps>
+
+### Email Verification
+
+<Warning>
+  **Important:** Verify your email to receive follow-up reminder notifications. Without verification, you'll miss important alerts.
+</Warning>
+
+After registering, check your email for a verification message. The verification process:
+
+1. Click the verification link in your email
+2. You'll be redirected to confirm your email address
+3. Your account is now fully activated
+
+If you don't receive the email:
+- Check your spam folder
+- Navigate to `/identity/email_verification` to resend
+- Contact support if issues persist
+
+## Account & Workspace Management
+
+### Understanding Workspaces
+
+Trellixe uses a multi-tenant workspace system:
+
+- **Account (Workspace)** - Your organization's shared workspace
+- **User** - Individual team member with their own login
+- **Membership** - Links users to accounts with specific roles
+
+```ruby
+# Data model relationships:
+Account
+  has_many :memberships
+  has_many :users, through: :memberships
+  has_many :contacts  # Shared across team
+  has_many :events    # Shared across team
+
+User
+  has_many :memberships
+  has_many :accounts, through: :memberships
+  has_many :follow_up_tasks  # Personal to each user
+```
+
+<Info>
+  When you sign up, a default workspace is automatically created for you. All contacts and events are shared with your team, but follow-up tasks are assigned to individual users.
+</Info>
+
+### Create Additional Workspaces
+
+If you manage multiple organizations (e.g., separate churches, different sales teams):
+
+<Steps>
+  <Step title="Navigate to Account Settings">
+    Click on your profile menu and select **New Workspace**.
+  </Step>
+  
+  <Step title="Create the Account">
+    ```ruby
+    # Account creation route:
+    POST /accounts
+    
+    # Parameters:
+    params.require(:account).permit(
+      :name,          # Workspace name
+      :description    # Optional description
+    )
+    ```
+  </Step>
+  
+  <Step title="Switch Between Workspaces">
+    ```ruby
+    # Switch workspace:
+    POST /accounts/:id/switch
+    
+    # This updates your current session context
+    # All subsequent operations use the new workspace
+    ```
+  </Step>
+</Steps>
+
+### Workspace Settings
+
+Manage your workspace from `/settings`:
+
+- **General Settings** - Edit workspace name and description at `/settings/workspace/general`
+- **Team Members** - View and manage team at `/members`
+- **Invitations** - Manage pending invites at `/team_invitations`
+
+## Team Management
+
+### Invite Team Members
+
+Collaborate with your team by inviting additional users:
+
+<Steps>
+  <Step title="Create Team Invitation">
+    Navigate to **Team Settings** or `/team_invitations/new`:
+    
+    ```ruby
+    # Team invitation parameters:
+    POST /team_invitations
+    
+    params.require(:team_invitation).permit(
+      :email,     # Email of person to invite
+      :role       # User role (admin, member, etc.)
+    )
+    ```
+  </Step>
+  
+  <Step title="Invitation Email Sent">
+    The invitee receives an email with:
+    
+    - Link to accept the invitation
+    - Information about your workspace
+    - Instructions to create an account (if they don't have one)
+  </Step>
+  
+  <Step title="Invitation Acceptance">
+    When the invitee clicks the link:
+    
+    - They're directed to `/team_invitation_acceptance`
+    - If they don't have an account, they create one
+    - A membership is created linking them to your workspace
+    - They gain access to shared contacts and events
+  </Step>
+</Steps>
+
+### Manage Team Members
+
+View and manage your team from `/members`:
+
+```ruby
+# Team directory displays:
+- User name and email
+- Role in the workspace
+- Join date
+- Status (active, pending, etc.)
+```
+
+**Update Member Roles:**
+```ruby
+PATCH /memberships/:id
+
+params.require(:membership).permit(:role)
+```
+
+**Remove Team Members:**
+```ruby
+DELETE /memberships/:id
+
+# Removes user's access to workspace
+# Does not delete their user account
+# They can still access other workspaces
+```
+
+### Resend Invitations
+
+If an invitation expires or gets lost:
+
+```ruby
+POST /team_invitations/:id/resend
+
+# Sends a fresh invitation email
+# Extends the acceptance deadline
+```
+
+## User Profile Settings
+
+Manage your personal settings under the `/identity` namespace:
+
+### Update Profile Information
+
+**Change Your Name:**
+```ruby
+PATCH /identity/name
+
+params.require(:user).permit(:name)
+```
+
+**Change Your Email:**
+```ruby
+PATCH /identity/email
+
+params.require(:user).permit(:email)
+
+# Triggers new verification email
+# You'll need to verify the new address
+```
+
+**Update Timezone:**
+```ruby
+PATCH /identity/time_zone
+
+params.require(:user).permit(:timezone)
+
+# Ensures follow-up reminders arrive at correct local time
+```
+
+### Change Your Password
+
+```ruby
+PATCH /password
+
+params.require(:user).permit(
+  :current_password,
+  :password,
+  :password_confirmation
+)
+```
+
+### Password Reset
+
+If you forget your password:
+
+<Steps>
+  <Step title="Request Password Reset">
+    Navigate to `/identity/password_reset/new` and enter your email.
+  </Step>
+  
+  <Step title="Check Your Email">
+    You'll receive a password reset link valid for 24 hours.
+  </Step>
+  
+  <Step title="Set New Password">
+    Click the link and create a new password at `/identity/password_reset/edit`.
+  </Step>
+</Steps>
+
+## Session Management
+
+Trellixe supports multiple active sessions across devices.
+
+### View Active Sessions
+
+```ruby
+GET /sessions
+
+# Shows all active sessions:
+- Device type and browser
+- IP address
+- Last active time
+- Current session (highlighted)
+```
+
+### Sign Out of Specific Sessions
+
+```ruby
+DELETE /sessions/:id
+
+# Revokes that session token
+# Logs out that specific device
+# Doesn't affect other sessions
+```
+
+### Sign Out Everywhere
+
+```ruby
+# Sign out of all sessions except current:
+@user.sessions.where.not(id: current_session.id).destroy_all
+```
+
+## Notification Setup
+
+### In-App Notifications
+
+In-app notifications are enabled by default:
+
+- View notifications at `/notifications`
+- Mark individual notifications as read
+- Mark all as read with bulk action
+
+```ruby
+POST /notifications/mark_all_as_read
+
+# Clears notification badge
+# Marks all notifications as read
+```
+
+### Push Notifications (Web Push)
+
+Enable browser push notifications to receive follow-up reminders even when Trellixe isn't open:
+
+<Steps>
+  <Step title="Grant Permission">
+    When prompted, click **Allow** to enable push notifications in your browser.
+  </Step>
+  
+  <Step title="Subscription Created">
+    ```ruby
+    POST /web_push_subscriptions
+    
+    # Creates subscription record
+    # Links to your user account
+    # Enables push notifications
+    ```
+  </Step>
+  
+  <Step title="Receive Reminders">
+    You'll now receive push notifications when:
+    
+    - A follow-up task becomes due
+    - You're assigned a new task
+    - Team members complete tasks
+  </Step>
+</Steps>
+
+<Warning>
+  Push notifications require HTTPS. They work automatically on the production Trellixe instance but may not work on local development environments.
+</Warning>
+
+## Advanced Configuration
+
+### Authentication Options
+
+Trellixe supports multiple authentication methods:
+
+**Standard Email/Password:**
+- Default method
+- Uses secure password hashing
+- Session-based authentication
+
+**Social Login (OAuth):**
+```ruby
+# Configured providers:
+GET /auth/:provider/callback
+
+# Supported providers:
+- Google
+- GitHub
+- Microsoft
+# (Provider availability depends on instance configuration)
+```
+
+**Passwordless Login:**
+```ruby
+# Request magic link:
+POST /sessions/passwordless
+
+# Sends email with secure token
+# Click link to log in without password
+```
+
+### Admin Features
+
+<Info>
+  **Sudo Mode** - For sensitive operations, Trellixe requires re-authentication. Navigate to `/sessions/sudo/new` to elevate your session.
+</Info>
+
+**User Masquerade (Admin Only):**
+```ruby
+POST /users/:user_id/masquerade
+
+# Allows admins to view the app as another user
+# Useful for debugging and support
+# All actions are logged
+```
+
+## Data Management
+
+### Bulk Operations
+
+Trellixe supports efficient bulk operations to save time:
+
+**Bulk Delete Contacts:**
+```ruby
+DELETE /contacts/bulk_destroy
+
+params[:contact_ids] = [1, 2, 3, ...]
+
+# Deletes multiple contacts at once
+# Scoped to current workspace for security
+```
+
+**Bulk Assign to Event:**
+```ruby
+POST /contacts/bulk_assign_event
+
+params[:contact_ids] = [1, 2, 3, ...]
+params[:event_id] = 123
+
+# Creates invitations for multiple contacts
+# Uses efficient insert_all for performance
+```
+
+**Bulk Update Invitations:**
+```ruby
+PATCH /invitations/bulk_update
+
+params[:invitation_ids] = [1, 2, 3, ...]
+params[:status] = 'attended'
+
+# Marks multiple people as attended
+# Automatically creates follow-up tasks
+```
+
+**Bulk Task Actions:**
+```ruby
+PATCH /follow_up_tasks/bulk_update
+
+params[:task_ids] = [1, 2, 3, ...]
+params[:commit] = 'Mark Complete' # or 'Snooze 24h'
+
+# Complete or snooze multiple tasks at once
+```
+
+### Search and Filtering
+
+Trellixe uses Ransack for powerful search capabilities:
+
+```ruby
+# Search contacts:
+GET /contacts?q[first_name_cont]=John&q[last_name_cont]=Doe
+
+# Filter events by date range:
+GET /events?q[starts_at_gteq]=2024-01-01&q[starts_at_lteq]=2024-12-31
+
+# Filter follow-up tasks by event:
+GET /follow_up_tasks?q[invitation_event_id_eq]=123
+```
+
+Available search operators:
+- `_cont` - Contains (partial match)
+- `_eq` - Equals (exact match)
+- `_gteq` - Greater than or equal
+- `_lteq` - Less than or equal
+
+## Troubleshooting
+
+<AccordionGroup>
+  <Accordion title="I'm not receiving email notifications">
+    1. Check your spam/junk folder
+    2. Verify your email at `/identity/email_verification`
+    3. Ensure your email settings allow emails from Trellixe
+    4. Check notification preferences in your profile
+  </Accordion>
+  
+  <Accordion title="Push notifications aren't working">
+    1. Ensure you've granted browser permission
+    2. Check that notifications aren't blocked at the OS level
+    3. Try re-subscribing at `/web_push_subscriptions`
+    4. Push notifications require HTTPS connection
+  </Accordion>
+  
+  <Accordion title="Can't see contacts created by teammates">
+    1. Verify you're in the correct workspace
+    2. Check that you have an active membership
+    3. Confirm the workspace switch using POST `/accounts/:id/switch`
+    4. Refresh the page to reload workspace context
+  </Accordion>
+  
+  <Accordion title="Follow-up tasks aren't being created">
+    1. Ensure you marked the invitation as "Attended" (not just "Invited")
+    2. Check that the event has ended (tasks are scheduled after event end time)
+    3. Verify the invitation status was successfully updated
+    4. Tasks are user-specific—check that you're assigned
+  </Accordion>
+  
+  <Accordion title="Lost access to my workspace">
+    1. Check if your membership was removed (contact workspace admin)
+    2. Verify you're logged into the correct account
+    3. Try switching workspaces from the profile menu
+    4. Contact support if you believe this is an error
+  </Accordion>
+</AccordionGroup>
+
+## Next Steps
+
+Now that your account is fully configured:
+
+<CardGroup cols={2}>
+  <Card
+    title="Quick Start Guide"
+    icon="rocket"
+    href="/quickstart"
+  >
+    Complete your first workflow from contact creation to follow-up completion.
+  </Card>
+  
+  <Card
+    title="Contact Management"
+    icon="address-book"
+    href="/features/contact-management"
+  >
+    Learn best practices for capturing context and organizing your network.
+  </Card>
+  
+  <Card
+    title="Event Tracking"
+    icon="calendar"
+    href="/features/event-scheduling"
+  >
+    Master the calendar view, attendance tracking, and invitation management.
+  </Card>
+  
+  <Card
+    title="Follow-Up Workflow"
+    icon="list-check"
+    href="/features/follow-up-automation"
+  >
+    Optimize your follow-up process with filtering, bulk actions, and logging.
+  </Card>
+</CardGroup>
+
+<Note>
+  **Need Help?** - Visit `/help` for additional resources, or contact support at `/contact-us`. Our team is here to ensure you get the most out of Trellixe.
+</Note>

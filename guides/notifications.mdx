@@ -1,0 +1,438 @@
+---
+title: 'Notifications'
+description: 'Learn how to manage notifications and enable web push notifications in Trellixe for real-time updates'
+---
+
+## Overview
+
+Trellixe features a comprehensive notification system powered by the Noticed gem, supporting both in-app notifications and web push notifications. Stay updated on team activities, follow-up tasks, and important events across all your workspaces.
+
+## Notification System
+
+### How Notifications Work
+
+Trellixe uses the **Noticed** gem to deliver flexible, multi-channel notifications:
+
+- **In-app notifications:** Displayed in the notification center within Trellixe
+- **Web push notifications:** Browser notifications even when you're not on the site
+- **Turbo Stream delivery:** Real-time updates without page refresh
+- **Workspace-scoped:** Notifications are filtered by your current workspace
+
+<Note>
+  Notifications are associated with both users (recipients) and accounts (workspaces), allowing proper filtering when switching between workspaces.
+</Note>
+
+### Notification Types
+
+Trellixe delivers several types of notifications:
+
+<Accordion title="Team Notifications">
+  **Team-related events** delivered via Turbo Stream:
+  - New team member invitations
+  - Team member joins workspace
+  - Role changes and permissions updates
+  - Team member removals
+  
+  These notifications are scoped to specific workspaces using `account_id`.
+</Accordion>
+
+<Accordion title="Follow-Up Task Notifications">
+  **Task reminders** delivered via web push:
+  - Follow-up task deadlines approaching
+  - Contact engagement reminders
+  - Post-event follow-up prompts
+  
+  Example: "Time to Follow Up! Don't forget to connect with John Smith from Tech Conference 2026."
+</Accordion>
+
+<Accordion title="Contact & Event Notifications">
+  **CRM activity updates:**
+  - New contacts added to workspace
+  - Event invitations sent
+  - RSVP status changes
+  - Interaction logs created
+</Accordion>
+
+## Viewing Notifications
+
+### Notification Center
+
+Access your notifications at `/notifications` to see:
+
+- **All notifications** for the current workspace
+- **Unread notifications** highlighted
+- **Read notifications** dimmed for reference
+- **Notification metadata:** timestamp, type, and source
+
+```ruby
+# Notification query (notifications_controller.rb:5-7)
+@notifications = current_user.notifications
+                            .where(account_id: [Current.account.id, nil])
+                            .newest_first.limit(50)
+```
+
+<Tip>
+  Notifications are limited to the 50 most recent items for performance. Older notifications are automatically archived.
+</Tip>
+
+### Workspace Filtering
+
+Notifications are automatically filtered based on your current workspace:
+
+- Switch workspaces to see workspace-specific notifications
+- Global notifications (account_id: nil) appear in all workspaces
+- Team notifications are scoped to the relevant workspace
+
+### Notification Badge
+
+The notification badge in the navigation bar shows:
+- **Red dot:** Unread notifications available
+- **Number:** Count of unread notifications
+- **Real-time updates:** Badge updates via Turbo Stream without refresh
+
+## Reading & Managing Notifications
+
+### Marking Notifications as Read
+
+<Steps>
+  <Step title="Click a Notification">
+    Click any notification in the notification center
+  </Step>
+  
+  <Step title="Automatic Mark as Read">
+    The notification is automatically marked as read when clicked
+  </Step>
+  
+  <Step title="Navigate to Destination">
+    You're redirected to the relevant page (contact, task, event, etc.)
+  </Step>
+</Steps>
+
+```ruby
+# Auto mark as read (notifications_controller.rb:11-15)
+@notification = current_user.notifications.find(params[:id])
+@notification.mark_as_read!
+redirect_to helpers.notification_destination(@notification)
+```
+
+### Mark All as Read
+
+Quickly clear all unread notifications:
+
+1. Visit `/notifications`
+2. Click "Mark All as Read" button
+3. All unread notifications for the current workspace are marked as read
+
+<Note>
+  The "Mark All as Read" action only affects notifications for your current workspace, preserving unread notifications in other workspaces.
+</Note>
+
+```ruby
+# Mark all read (notifications_controller.rb:18-27)
+scope = current_user.notifications.unread
+
+if Current.account
+  scope = scope.where(account_id: [Current.account.id, nil])
+end
+
+scope.update_all(read_at: Time.current, seen_at: Time.current)
+```
+
+## Web Push Notifications
+
+### What are Web Push Notifications?
+
+Web push notifications are native browser notifications that:
+
+- **Appear even when Trellixe is closed**
+- **Work on desktop and mobile browsers**
+- **Provide instant updates** for time-sensitive information
+- **Clickable** to navigate directly to relevant content
+
+<Warning>
+  Web push notifications require browser permission. You must grant permission when prompted for notifications to work.
+</Warning>
+
+### Enabling Web Push
+
+To enable web push notifications in Trellixe:
+
+<Steps>
+  <Step title="Browser Permission Prompt">
+    When you first access Trellixe, your browser will ask for notification permission
+  </Step>
+  
+  <Step title="Grant Permission">
+    Click "Allow" to enable web push notifications
+  </Step>
+  
+  <Step title="Subscription Registration">
+    Trellixe automatically registers your browser with the push service
+  </Step>
+  
+  <Step title="Confirmation">
+    You'll receive a confirmation that push notifications are enabled
+  </Step>
+</Steps>
+
+### How Web Push Subscriptions Work
+
+**Browser Push API Flow:**
+
+1. **User grants permission** via browser prompt
+2. **Browser generates subscription** with unique endpoint and encryption keys
+3. **Subscription sent to Trellixe** via `/web_push_subscriptions` endpoint
+4. **Trellixe stores subscription** with `endpoint`, `p256dh`, and `auth` keys
+5. **Notifications delivered** via Web Push Protocol when events occur
+
+```ruby
+# Subscription storage (web_push_subscriptions_controller.rb:3-15)
+@subscription = current_user.web_push_subscriptions.find_or_initialize_by(
+  endpoint: subscription_params[:endpoint]
+)
+
+if @subscription.update(
+     p256dh: subscription_params.dig(:keys, :p256dh),
+     auth: subscription_params.dig(:keys, :auth)
+   )
+  render json: { message: "Subscription saved." }, status: :ok
+end
+```
+
+<Accordion title="Web Push Subscription Parameters">
+  - **endpoint:** Unique URL provided by the push service for this subscription
+  - **p256dh:** Public key for message encryption (P-256 elliptic curve)
+  - **auth:** Authentication secret for encrypting messages
+  
+  These parameters ensure messages are encrypted and only deliverable to the subscribed browser.
+</Accordion>
+
+### Managing Push Subscriptions
+
+**Multiple Device Support:**
+- Each browser/device creates a separate subscription
+- Users can have multiple active subscriptions
+- Subscriptions are automatically managed per device
+
+**Subscription Updates:**
+- Subscriptions are updated if the endpoint already exists
+- New subscriptions are created for new devices
+- Old subscriptions are automatically cleaned up
+
+<Tip>
+  If you're not receiving push notifications, try revoking and re-granting browser notification permission, then refresh Trellixe.
+</Tip>
+
+## Follow-Up Task Notifications
+
+One of the most powerful uses of web push in Trellixe is follow-up task reminders.
+
+### Task Notification Format
+
+```json
+{
+  "title": "Time to Follow Up!",
+  "body": "Don't forget to connect with [Contact Name] from [Event Name].",
+  "url": "/follow_up_tasks/[task_id]/interaction_logs/new"
+}
+```
+
+### When You Receive Task Notifications
+
+- **Scheduled reminders:** Based on follow-up task due dates
+- **Pre-event reminders:** Before important follow-up deadlines
+- **Engagement prompts:** When it's time to reach out to contacts
+
+<Note>
+  Clicking a task notification takes you directly to the interaction log form, making it easy to record your follow-up immediately.
+</Note>
+
+### Customizing Task Notifications
+
+Task notifications include:
+- **Contact full name** for personalization
+- **Event context** to remind you where you met
+- **Direct link** to interaction log creation
+
+```ruby
+# Follow-up notification payload (follow_up_task_notifier.rb:6-18)
+def web_push_payload
+  task = params[:task]
+  contact_name = task.contact.full_name
+  event_name = task.event.name
+
+  {
+    title: "Time to Follow Up!",
+    body: "Don't forget to connect with #{contact_name} from #{event_name}.",
+    url: new_follow_up_task_interaction_log_url(task)
+  }
+end
+```
+
+## Notification Preferences
+
+### Browser Notification Settings
+
+Control web push notifications through your browser:
+
+**Chrome/Edge:**
+1. Settings → Privacy and Security → Site Settings → Notifications
+2. Find Trellixe in the list
+3. Toggle notifications on/off
+
+**Firefox:**
+1. Settings → Privacy & Security → Permissions → Notifications
+2. Find Trellixe and adjust settings
+3. Choose "Allow" or "Block"
+
+**Safari:**
+1. Safari → Preferences → Websites → Notifications
+2. Find Trellixe and select permission level
+3. Options: Allow, Deny, or Ask
+
+<Warning>
+  Blocking notifications in browser settings will prevent all web push notifications from Trellixe, even if subscriptions are active.
+</Warning>
+
+## Troubleshooting
+
+### Not Receiving Notifications
+
+<Accordion title="Check Browser Permissions">
+  Ensure Trellixe has notification permission:
+  1. Look for notification icon in browser address bar
+  2. Click and select "Allow notifications"
+  3. Refresh Trellixe to re-register subscription
+</Accordion>
+
+<Accordion title="Verify Subscription Status">
+  If notifications aren't working:
+  1. Check browser console for subscription errors
+  2. Revoke notification permission
+  3. Refresh page and re-grant permission
+  4. New subscription will be created automatically
+</Accordion>
+
+<Accordion title="Clear Old Subscriptions">
+  If you're getting duplicate notifications:
+  1. Old subscriptions may still be active
+  2. Trellixe uses `find_or_initialize_by` endpoint to prevent duplicates
+  3. Each device should have only one active subscription
+</Accordion>
+
+### Notifications Not Marking as Read
+
+**Problem:** Clicked notification but still shows as unread
+
+**Solution:** 
+- Ensure you clicked through the notification, not just viewed it
+- Notifications are marked read on click via `@notification.mark_as_read!`
+- Use "Mark All as Read" to clear stubborn notifications
+
+### Wrong Workspace Notifications
+
+**Problem:** Seeing notifications from another workspace
+
+**Solution:**
+- Switch to the correct workspace using workspace switcher
+- Notifications are filtered by `Current.account.id`
+- Global notifications (nil account_id) appear in all workspaces
+
+### Web Push Not Supported
+
+**Problem:** Browser doesn't support web push
+
+**Solution:**
+- Web push requires modern browsers (Chrome 42+, Firefox 44+, Safari 16+)
+- Ensure HTTPS is enabled (required for service workers)
+- Some privacy browsers block push notifications by default
+
+<Tip>
+  Mobile browsers have varying support for web push. iOS Safari supports web push starting with iOS 16.4.
+</Tip>
+
+## Real-Time Updates
+
+Trellixe uses **Turbo Streams** for real-time notification delivery:
+
+### How Turbo Stream Delivery Works
+
+1. **Event occurs** (new team member, task created, etc.)
+2. **Notifier triggered** (TeamNotifier, FollowUpTaskNotifier, etc.)
+3. **Turbo Stream broadcast** sent to user's channel
+4. **Notification appears instantly** without page refresh
+5. **Badge updates** to reflect new unread count
+
+```ruby
+# Team notification delivery (team_notifier.rb:2-3)
+deliver_by :turbo_stream, class: "DeliveryMethods::TurboStreamDelivery"
+```
+
+### Benefits of Real-Time Delivery
+
+- **No polling:** Efficient server-side push
+- **Instant updates:** See notifications as they happen
+- **Reduced bandwidth:** Only updates change, not entire page
+- **Better UX:** Seamless, app-like experience
+
+<Note>
+  Turbo Streams require an active connection to Trellixe. If you're offline, notifications will appear when you reconnect.
+</Note>
+
+## Database Schema
+
+### Notification Model
+
+Notifications are stored using Noticed's schema:
+
+```ruby
+class Noticed::Notification
+  belongs_to :recipient, polymorphic: true  # User
+  belongs_to :event, class_name: "Noticed::Event"
+  
+  # Attributes:
+  # - read_at: timestamp when notification was read
+  # - seen_at: timestamp when notification was seen
+  # - account_id: workspace scoping
+end
+```
+
+### Web Push Subscription Model
+
+```ruby
+class WebPushSubscription < ApplicationRecord
+  belongs_to :user
+  
+  # Attributes:
+  # - endpoint: push service URL
+  # - p256dh: encryption public key
+  # - auth: authentication secret
+end
+```
+
+## Best Practices
+
+<Accordion title="Notification Management Best Practices">
+  1. **Enable web push early:** Get the most value from real-time notifications
+  2. **Review notifications daily:** Check notification center regularly
+  3. **Mark as read promptly:** Keep your notification center organized
+  4. **Grant permission on all devices:** Enable push on desktop and mobile
+  5. **Use workspace switching:** Switch workspaces to see relevant notifications
+  6. **Act on task notifications:** Follow-up reminders are time-sensitive
+  7. **Manage browser settings:** Adjust notification preferences per your workflow
+</Accordion>
+
+## API Reference
+
+| Endpoint | Method | Purpose |
+|----------|--------|----------|
+| `/notifications` | GET | List notifications |
+| `/notifications/:id` | GET | View & mark as read |
+| `/notifications/mark_all_as_read` | POST | Mark all read |
+| `/web_push_subscriptions` | POST | Register push subscription |
+
+## Related Resources
+
+- [Follow-Up Tasks](/guides/best-practices#follow-up-tasks) - Learn about task management
+- [Team Management](/guides/settings#team-management) - Understand team notifications
+- [Best Practices](/guides/best-practices) - Optimize your Trellixe workflow

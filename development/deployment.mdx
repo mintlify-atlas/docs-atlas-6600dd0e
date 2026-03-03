@@ -1,0 +1,798 @@
+---
+title: "Deployment with Kamal"
+description: "Deploy Trellixe to production using Kamal 2, Docker containerization, and zero-downtime deployments"
+---
+
+## Overview
+
+Trellixe uses [Kamal 2](https://kamal-deploy.org/) for production deployment. Kamal orchestrates Docker containers directly on your servers via SSH, providing zero-downtime deployments without requiring Kubernetes or complex orchestration tools.
+
+**Key Benefits:**
+- Zero-downtime deployments with health checks
+- SSL certificate management via Let's Encrypt
+- Built-in proxy (Traefik) for load balancing
+- Simple SSH-based deployment (no Kubernetes needed)
+- Rollback support
+- Secrets management
+
+## Prerequisites
+
+### Local Requirements
+
+```bash
+# Install Kamal
+gem install kamal
+
+# Verify installation
+kamal version
+```
+
+### Server Requirements
+
+- Ubuntu 22.04 or newer (recommended)
+- Docker installed
+- SSH access with sudo privileges
+- Port 80 and 443 open
+- Minimum 1GB RAM (2GB+ recommended)
+
+<Note>
+Kamal will install Docker automatically if you use the setup hooks. See the "First-Time Setup" section below.
+</Note>
+
+## Architecture
+
+```
+                    ┌─────────────────┐
+                    │   Internet      │
+                    └────────┬────────┘
+                             │
+                    ┌────────▼────────┐
+                    │   Port 80/443   │
+                    │   Traefik Proxy │  ← SSL Termination
+                    └────────┬────────┘     (Let's Encrypt)
+                             │
+        ┌────────────────────┼────────────────────┐
+        │                    │                    │
+   ┌────▼─────┐       ┌─────▼──────┐      ┌─────▼──────┐
+   │ Container│       │ Container  │      │ Container  │
+   │ (Version │       │ (Version   │      │ (Jobs)*    │
+   │  Blue)   │       │  Green)    │      └────────────┘
+   └──────────┘       └────────────┘
+        │                    │
+        └────────┬───────────┘
+                 │
+        ┌────────▼────────┐
+        │  Persistent     │
+        │  Volumes        │
+        │  - storage/     │  ← SQLite DB, uploads, etc.
+        │  - logs/        │
+        └─────────────────┘
+```
+
+*Jobs container is optional and commented out by default
+
+## Configuration Files
+
+### config/deploy.yml
+
+**Location:** `/home/daytona/workspace/source/config/deploy.yml`
+
+The primary Kamal configuration file.
+
+```yaml
+# Service name (used for container naming)
+service: trellixe
+
+# Docker image name
+image: your-user/trellixe
+
+# Target servers
+servers:
+  web:
+    - 192.168.0.1
+  # Optional: Dedicated job server
+  # job:
+  #   hosts:
+  #     - 192.168.0.1
+  #   cmd: bin/jobs
+
+# SSL Configuration
+proxy:
+  ssl: true
+  host: app.example.com
+
+# Container Registry
+registry:
+  # Use Docker Hub, GitHub Container Registry, or others
+  # server: ghcr.io
+  username: your-user
+  password:
+    - KAMAL_REGISTRY_PASSWORD
+
+# Environment Variables
+env:
+  secret:
+    - RAILS_MASTER_KEY
+  clear:
+    # Run Solid Queue jobs inside Puma process
+    SOLID_QUEUE_IN_PUMA: true
+    
+    # Optional: Job concurrency
+    # JOB_CONCURRENCY: 3
+    
+    # Optional: Web concurrency
+    # WEB_CONCURRENCY: 2
+    
+    # Optional: External database
+    # DB_HOST: 192.168.0.2
+
+# Persistent Storage
+volumes:
+  - "trellixe_storage:/rails/storage"
+
+# Asset bridging (prevents 404s during deployments)
+asset_path: /rails/public/assets
+
+# Build Configuration
+builder:
+  arch: amd64
+  # Optional: Remote builder for faster builds
+  # remote: ssh://docker@docker-builder-server
+
+# Command Aliases
+aliases:
+  console: app exec --interactive --reuse "bin/rails console"
+  shell: app exec --interactive --reuse "bash"
+  logs: app logs -f
+  dbc: app exec --interactive --reuse "bin/rails dbconsole"
+```
+
+<Accordion title="Understanding proxy configuration">
+**Single Server Setup:**
+```yaml
+proxy:
+  ssl: true
+  host: app.example.com
+```
+Kamal manages SSL certificates and acts as the load balancer.
+
+**Multi-Server Setup:**
+Remove the `proxy` section and terminate SSL at your external load balancer (AWS ALB, Cloudflare, etc.).
+</Accordion>
+
+### .kamal/secrets
+
+**Location:** `/home/daytona/workspace/source/.kamal/secrets`
+
+**Critical:** This file is sourced as a bash script to populate secrets.
+
+```bash
+# DO NOT COMMIT RAW SECRETS!
+# Pull from environment, password manager, or encrypted files
+
+# Example: 1Password integration
+# SECRETS=$(kamal secrets fetch --adapter 1password \
+#   --account your-account \
+#   --from Vault/Item \
+#   KAMAL_REGISTRY_PASSWORD RAILS_MASTER_KEY)
+
+# Container registry password (Docker Hub, GHCR, etc.)
+KAMAL_REGISTRY_PASSWORD=$KAMAL_REGISTRY_PASSWORD
+
+# Rails master key (DO NOT commit config/master.key to git!)
+RAILS_MASTER_KEY=$(cat config/master.key)
+
+# Optional: GitHub token for private gems
+# GITHUB_TOKEN=$(gh config get -h github.com oauth_token)
+```
+
+<Note>
+**Security Best Practice:** Use environment variables or a password manager. Never hardcode credentials in this file. The file should be safe to commit to git.
+</Note>
+
+### Dockerfile
+
+**Location:** `/home/daytona/workspace/source/Dockerfile`
+
+Multi-stage Docker build optimized for production.
+
+```dockerfile
+# syntax=docker/dockerfile:1
+ARG RUBY_VERSION=3.4.5
+FROM docker.io/library/ruby:$RUBY_VERSION-slim AS base
+
+WORKDIR /rails
+
+# Install runtime dependencies
+RUN apt-get update -qq && \
+    apt-get install --no-install-recommends -y \
+      curl libjemalloc2 libvips sqlite3 && \
+    rm -rf /var/lib/apt/lists /var/cache/apt/archives
+
+# Production environment
+ENV RAILS_ENV="production" \
+    BUNDLE_DEPLOYMENT="1" \
+    BUNDLE_PATH="/usr/local/bundle" \
+    BUNDLE_WITHOUT="development"
+
+# Build stage
+FROM base AS build
+
+RUN apt-get update -qq && \
+    apt-get install --no-install-recommends -y \
+      build-essential git libyaml-dev pkg-config && \
+    rm -rf /var/lib/apt/lists /var/cache/apt/archives
+
+# Install gems
+COPY Gemfile Gemfile.lock ./
+RUN bundle install && \
+    rm -rf ~/.bundle/ "${BUNDLE_PATH}"/ruby/*/cache && \
+    bundle exec bootsnap precompile --gemfile
+
+# Copy application
+COPY . .
+
+# Precompile bootsnap
+RUN bundle exec bootsnap precompile app/ lib/
+
+# Precompile assets
+RUN SECRET_KEY_BASE_DUMMY=1 ./bin/rails assets:precompile
+
+# Final stage
+FROM base
+
+COPY --from=build "${BUNDLE_PATH}" "${BUNDLE_PATH}"
+COPY --from=build /rails /rails
+
+# Non-root user for security
+RUN groupadd --system --gid 1000 rails && \
+    useradd rails --uid 1000 --gid 1000 --create-home --shell /bin/bash && \
+    chown -R rails:rails db log storage tmp
+USER 1000:1000
+
+ENTRYPOINT ["/rails/bin/docker-entrypoint"]
+
+# Start with Thruster (HTTP/2, caching)
+EXPOSE 80
+CMD ["./bin/thrust", "./bin/rails", "server"]
+```
+
+**Key Features:**
+- **Multi-stage build:** Separates build dependencies from runtime
+- **Layer caching:** Gem installation cached for faster rebuilds
+- **Bootsnap precompilation:** Faster boot times
+- **Non-root user:** Security best practice
+- **Thruster:** Rails 8's built-in HTTP/2 server with caching
+
+<Info>
+**Thruster** is Rails 8's recommended production server. It provides:
+- HTTP/2 support
+- Asset caching
+- X-Sendfile support
+- Better performance than Puma alone
+</Info>
+
+## Kamal Hooks
+
+**Location:** `/home/daytona/workspace/source/.kamal/hooks/`
+
+Hooks are optional bash scripts that run at specific deployment stages.
+
+### Available Hooks
+
+```bash
+.kamal/hooks/
+├── pre-connect.sample        # Before SSH connection
+├── docker-setup.sample       # Install Docker on server
+├── pre-build.sample          # Before building image
+├── pre-deploy.sample         # Before deploying
+├── pre-app-boot.sample      # Before starting container
+├── post-app-boot.sample     # After starting container
+├── post-deploy.sample       # After successful deployment
+├── pre-proxy-reboot.sample  # Before restarting proxy
+└── post-proxy-reboot.sample # After restarting proxy
+```
+
+### Enabling Hooks
+
+```bash
+# Remove .sample extension to activate
+cd .kamal/hooks
+mv docker-setup.sample docker-setup
+chmod +x docker-setup
+```
+
+### Example: post-deploy Hook
+
+```bash
+#!/bin/bash
+# .kamal/hooks/post-deploy
+
+# Send deployment notification to Slack
+curl -X POST https://hooks.slack.com/services/YOUR/WEBHOOK/URL \
+  -H 'Content-Type: application/json' \
+  -d '{"text":"Trellixe deployed successfully to production"}'
+
+# Warm up application cache
+kamal app exec "bin/rails runner 'Rails.cache.clear'"
+```
+
+## First-Time Setup
+
+### 1. Configure Your Server
+
+Update `config/deploy.yml` with your server IP and domain:
+
+```yaml
+servers:
+  web:
+    - 198.51.100.1  # Your server IP
+
+proxy:
+  ssl: true
+  host: app.trellixe.com  # Your domain
+
+registry:
+  username: your-docker-username
+```
+
+### 2. Configure DNS
+
+Point your domain to your server:
+
+```
+A record: app.trellixe.com → 198.51.100.1
+```
+
+### 3. Setup Secrets
+
+Ensure your secrets file has valid credentials:
+
+```bash
+# Test secrets loading
+kamal secrets extract RAILS_MASTER_KEY
+```
+
+### 4. Initial Setup
+
+```bash
+# Install Docker on server and configure firewall
+kamal setup
+
+# This command will:
+# 1. Install Docker (if using docker-setup hook)
+# 2. Setup Traefik proxy
+# 3. Build and push your Docker image
+# 4. Create volumes
+# 5. Deploy the application
+# 6. Request SSL certificate from Let's Encrypt
+```
+
+<Note>
+The first deployment takes longer (5-10 minutes) because it:
+- Installs Docker
+- Pulls base images
+- Builds the application image
+- Requests SSL certificates
+
+Subsequent deployments are much faster (1-2 minutes).
+</Note>
+
+## Common Deployment Commands
+
+### Deploy New Version
+
+```bash
+# Standard deployment
+kamal deploy
+
+# Deploy with verbose output
+kamal deploy --verbose
+
+# Deploy specific version
+kamal deploy --version v2.1.0
+```
+
+**What happens during deployment:**
+
+```
+1. Build Docker image locally
+2. Tag with version (defaults to git commit SHA)
+3. Push to container registry
+4. Pull image on server
+5. Start new container
+6. Wait for health check
+7. Update proxy to route to new container
+8. Stop old container (after drain period)
+```
+
+### Check Application Status
+
+```bash
+# View running containers
+kamal app details
+
+# View application logs
+kamal app logs
+kamal app logs --follow
+kamal app logs --tail 100
+
+# View proxy (Traefik) logs
+kamal proxy logs
+
+# SSH into server
+kamal app exec --interactive --reuse bash
+```
+
+### Rails Console
+
+```bash
+# Access production console
+kamal console
+
+# Equivalent to:
+kamal app exec --interactive --reuse "bin/rails console"
+```
+
+<Note>
+**Be careful in production console!** All changes are permanent. Consider using `--sandbox` mode for read-only operations.
+</Note>
+
+### Database Operations
+
+```bash
+# Run migrations
+kamal app exec "bin/rails db:migrate"
+
+# Database console
+kamal dbc
+
+# Create database backup
+kamal app exec "bin/rails db:backup"
+
+# Seed production data (use cautiously!)
+kamal app exec "bin/rails db:seed"
+```
+
+### Rollback
+
+```bash
+# Rollback to previous version
+kamal rollback
+
+# Rollback to specific version
+kamal rollback --version v2.0.0
+```
+
+<Info>
+Kamal keeps the previous container running but stopped. Rollback simply restarts it and updates the proxy routing. This makes rollbacks instant (under 10 seconds).
+</Info>
+
+### Application Management
+
+```bash
+# Stop application (keeps containers)
+kamal app stop
+
+# Start application
+kamal app start
+
+# Restart application
+kamal app restart
+
+# Remove all containers and images
+kamal app remove
+
+# Complete teardown (removes everything)
+kamal remove
+```
+
+## Zero-Downtime Deployments
+
+Kamal achieves zero-downtime through:
+
+### 1. Health Checks
+
+Rails 8 includes a built-in health check endpoint:
+
+```ruby
+# config/routes.rb
+get "up" => "rails/health#show", as: :rails_health_check
+```
+
+Kamal polls this endpoint before switching traffic:
+
+```
+New container starts
+↓
+Kamal polls: GET /up
+↓ (every 2 seconds)
+Health check passes (200 OK)
+↓
+Proxy routes traffic to new container
+↓
+Old container drains connections (30s)
+↓
+Old container stops
+```
+
+### 2. Asset Bridging
+
+Assets from both versions are available during deployment:
+
+```yaml
+# config/deploy.yml
+asset_path: /rails/public/assets
+```
+
+This prevents 404 errors on fingerprinted assets (CSS, JS) when users have the old page loaded.
+
+### 3. Connection Draining
+
+The proxy waits for active requests to complete before stopping the old container (default 30 seconds).
+
+## Multi-Server Deployments
+
+For high-traffic applications, scale horizontally:
+
+```yaml
+servers:
+  web:
+    - 198.51.100.1
+    - 198.51.100.2
+    - 198.51.100.3
+  job:
+    hosts:
+      - 198.51.100.4
+    cmd: bin/jobs
+```
+
+**Architecture:**
+```
+       Load Balancer (External)
+              │
+      ┌───────┼───────┐
+      │       │       │
+  Server 1  Server 2  Server 3  ← Web containers
+                     
+                   Server 4  ← Job container
+                     
+          Shared Database/Storage
+            (External service)
+```
+
+<Accordion title="When to use dedicated job servers?">
+**Use dedicated job server when:**
+- Processing more than 100 background jobs/minute
+- Jobs are CPU/memory intensive
+- You want to isolate job failures from web requests
+
+**Use SOLID_QUEUE_IN_PUMA when:**
+- Low to moderate job volume
+- Simple jobs (emails, notifications)
+- Want to minimize infrastructure
+- Development/staging environments
+</Accordion>
+
+## Environment Variables
+
+### Secret Variables
+
+```yaml
+env:
+  secret:
+    - RAILS_MASTER_KEY
+    - DATABASE_URL
+    - REDIS_URL
+    - SECRET_KEY_BASE
+```
+
+Values come from `.kamal/secrets` file.
+
+### Clear Variables
+
+```yaml
+env:
+  clear:
+    RAILS_LOG_LEVEL: info
+    SOLID_QUEUE_IN_PUMA: true
+    WEB_CONCURRENCY: 2
+    RAILS_MAX_THREADS: 5
+```
+
+Values are visible in container inspection (not encrypted).
+
+## Monitoring and Logging
+
+### Application Logs
+
+```bash
+# Tail logs
+kamal app logs --follow
+
+# Filter by timestamp
+kamal app logs --since 2024-03-15T10:00:00
+
+# Search logs
+kamal app logs | grep ERROR
+```
+
+### Job Monitoring
+
+Trellixe includes Mission Control for Solid Queue:
+
+```
+https://app.trellixe.com/jobs
+```
+
+Access via the mounted engine at `/jobs`.
+
+### Server Resources
+
+```bash
+# SSH into server
+kamal app exec --interactive bash
+
+# Check disk usage
+df -h
+
+# Check memory
+free -h
+
+# Check Docker stats
+docker stats
+```
+
+## Troubleshooting
+
+### Deployment Fails at Health Check
+
+```bash
+# Check application logs
+kamal app logs --tail 100
+
+# Common issues:
+# - Database migration needed
+# - Missing environment variable
+# - Asset compilation failed
+```
+
+**Solution:**
+```bash
+# Run migrations
+kamal app exec "bin/rails db:migrate"
+
+# Check environment
+kamal app exec env | grep RAILS
+```
+
+### SSL Certificate Issues
+
+```bash
+# Check Traefik logs
+kamal proxy logs
+
+# Common issues:
+# - DNS not pointing to server
+# - Port 80/443 blocked
+# - Let's Encrypt rate limit
+```
+
+**Solution:**
+```bash
+# Verify DNS
+dig app.trellixe.com
+
+# Check ports
+sudo netstat -tlnp | grep -E ':(80|443)'
+
+# Restart proxy
+kamal proxy reboot
+```
+
+### Container Won't Start
+
+```bash
+# Check container status
+kamal app details
+
+# View Docker logs directly
+kamal app exec docker logs trellixe-web-latest
+```
+
+### Out of Disk Space
+
+```bash
+# Clean up old images
+kamal app remove --confirmed
+
+# SSH and clean Docker
+kamal app exec bash
+docker system prune -a
+```
+
+## Production Checklist
+
+Before deploying to production:
+
+- [ ] `config/master.key` is secure and backed up
+- [ ] `.kamal/secrets` uses environment variables (no hardcoded secrets)
+- [ ] DNS points to server
+- [ ] Server has adequate resources (2GB+ RAM)
+- [ ] Firewall allows ports 80 and 443
+- [ ] Database backups configured
+- [ ] Error monitoring configured (Sentry, Rollbar, etc.)
+- [ ] Log aggregation configured (optional)
+- [ ] SSL certificate requested and valid
+- [ ] Health check endpoint working
+- [ ] Tested rollback procedure
+
+## Best Practices
+
+### 1. Version Tagging
+
+```bash
+# Use semantic versioning
+git tag v1.0.0
+git push --tags
+
+# Deploy specific version
+kamal deploy --version v1.0.0
+```
+
+### 2. Database Migrations
+
+```bash
+# Always run migrations as separate step
+kamal app exec "bin/rails db:migrate"
+
+# Then deploy
+kamal deploy
+```
+
+<Note>
+Don't rely on automatic migrations during deployment. Run them explicitly to catch issues early.
+</Note>
+
+### 3. Staging Environment
+
+Create a separate configuration:
+
+```yaml
+# config/deploy.staging.yml
+service: trellixe-staging
+image: your-user/trellixe-staging
+
+servers:
+  web:
+    - 198.51.100.100  # Staging server
+
+proxy:
+  ssl: true
+  host: staging.trellixe.com
+```
+
+```bash
+# Deploy to staging
+kamal deploy -c config/deploy.staging.yml
+```
+
+### 4. Secrets Rotation
+
+```bash
+# Generate new Rails credentials
+bin/rails credentials:edit
+
+# Update .kamal/secrets with new RAILS_MASTER_KEY
+
+# Deploy
+kamal deploy
+```
+
+## Related Documentation
+
+- [Kamal Documentation](https://kamal-deploy.org/)
+- [Docker Documentation](https://docs.docker.com/)
+- [Rails Deployment Guide](https://guides.rubyonrails.org/deployment.html)
+- [Data Models Overview](/development/models-overview)
+- [Controller Patterns](/development/controllers)

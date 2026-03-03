@@ -1,0 +1,562 @@
+---
+title: 'Settings & Preferences'
+description: 'Manage your user settings, profile, workspaces, and team preferences in Trellixe'
+---
+
+## Overview
+
+Trellixe provides comprehensive settings for managing your personal profile, workspace configuration, team members, and application preferences. Access settings throughout the application to customize your networking CRM experience.
+
+## User Profile Settings
+
+### Personal Information
+
+Manage your personal account information from the identity settings.
+
+<Accordion title="Display Name">
+  **Update your display name** at `/identity/name/edit`
+  
+  Your name appears:
+  - In team member lists
+  - On contact interaction logs
+  - In workspace member directories
+  - As initials in avatar badges
+  
+  **Changes apply instantly** via Turbo Stream without page refresh.
+  
+  ```ruby
+  # Name update (identity/names_controller.rb:9-12)
+  if @user.update(user_params)
+    flash.now[:notice] = "Name was successfully updated."
+    format.turbo_stream
+  end
+  ```
+</Accordion>
+
+<Accordion title="Email Address">
+  **Change your email** at `/identity/email/edit`
+  
+  Requirements:
+  - Must provide current password for security verification
+  - Email must be unique across Trellixe
+  - Email format validation (RFC compliant)
+  
+  **Important:** Changing your email will:
+  - Reset your verification status to unverified
+  - Send a new verification email
+  - Require verification before password reset is available
+  
+  ```ruby
+  # Email change verification reset (user.rb:38-40)
+  before_validation if: :email_changed?, on: :update do
+    self.verified = false
+  end
+  ```
+</Accordion>
+
+<Accordion title="Password">
+  **Change your password** at `/password/edit`
+  
+  Security requirements:
+  - Current password verification (password challenge)
+  - Minimum 12 characters
+  - Not in known breached password database
+  - Password confirmation must match
+  
+  <Warning>
+    Password changes apply immediately. All other active sessions remain logged in until you explicitly sign them out.
+  </Warning>
+</Accordion>
+
+### Time Zone Configuration
+
+Your time zone is automatically detected and stored to ensure accurate timestamps.
+
+**Update time zone** at `/identity/time_zone` (background update)
+
+**Time zone affects:**
+- Follow-up task due dates and reminders
+- Event start and end times
+- Interaction log timestamps
+- Activity feed time displays
+- Notification delivery timing
+
+<Note>
+  Time zone updates happen automatically in the background without page reload, providing a seamless experience.
+</Note>
+
+```ruby
+# Time zone validation (user.rb:34)
+validates :time_zone, inclusion: { 
+  in: ActiveSupport::TimeZone.all.map(&:name) + 
+      ActiveSupport::TimeZone::MAPPING.values 
+}
+```
+
+## Workspace Settings
+
+Workspaces (also called Accounts) are the foundation of Trellixe's multi-tenant architecture.
+
+### Understanding Workspaces
+
+**What is a workspace?**
+- Isolated environment for your contacts, events, and team
+- Each workspace has its own team members and permissions
+- Data is never shared between workspaces
+- Users can belong to multiple workspaces
+
+**Personal vs. Team Workspaces:**
+- **Personal:** Automatically created on sign up (e.g., "David's Workspace")
+- **Team:** Created explicitly for collaboration with multiple members
+
+<Tip>
+  Think of workspaces like separate organizations or projects. Use personal workspaces for individual networking and team workspaces for collaborative CRM.
+</Tip>
+
+### Creating a Workspace
+
+Create new workspaces at `/accounts/new`:
+
+<Steps>
+  <Step title="Navigate to New Workspace">
+    Click "New Workspace" in the workspace switcher dropdown
+  </Step>
+  
+  <Step title="Enter Workspace Name">
+    Provide a descriptive name (e.g., "ACME Corporation", "Tech Conference Team")
+  </Step>
+  
+  <Step title="Automatic Admin Role">
+    You're automatically assigned as admin of the new workspace
+  </Step>
+  
+  <Step title="Context Switch">
+    Trellixe immediately switches to the new workspace
+  </Step>
+</Steps>
+
+```ruby
+# Workspace creation (accounts_controller.rb:9-20)
+@account = Account.new(account_params)
+
+ActiveRecord::Base.transaction do
+  @account.save!
+  # Creator is always Admin
+  Membership.create!(user: Current.user, account: @account, role: :admin)
+end
+
+# Switch context immediately
+session[:current_account_id] = @account.id
+```
+
+### Editing Workspace Details
+
+**Update workspace settings** at `/settings/workspace/general` or `/accounts/:id/edit`
+
+<Warning>
+  Only workspace admins can edit workspace settings. Members and viewers have read-only access.
+</Warning>
+
+**Editable settings:**
+- Workspace name
+- (Future: billing information, workspace avatar, etc.)
+
+### Switching Between Workspaces
+
+Quickly switch context between your workspaces:
+
+1. Click workspace name in navigation
+2. Select workspace from dropdown
+3. Trellixe updates to show selected workspace data
+
+**What changes when switching:**
+- All contacts, events, and follow-ups update
+- Team member list reflects current workspace
+- Notifications filter to current workspace
+- Settings apply to current workspace
+
+```ruby
+# Workspace switching (accounts_controller.rb:59-64)
+target_account = Current.user.accounts.find_by_public_id!(params[:id])
+session[:current_account_id] = target_account.id
+redirect_back fallback_location: root_path, 
+              notice: "Switched to #{target_account.name}"
+```
+
+### Deleting a Workspace
+
+**Delete workspace** from `/accounts/:id/edit` (admin only)
+
+<Warning>
+  Deleting a workspace is permanent and cannot be undone. All contacts, events, follow-up tasks, and team data will be permanently deleted.
+</Warning>
+
+**Safety requirements:**
+- Must provide current password (password challenge)
+- Cannot delete your only remaining workspace
+- Only admins can delete workspaces
+
+```ruby
+# Workspace deletion safeguards (accounts_controller.rb:42-52)
+# 1. Password Challenge (Security)
+unless Current.user.authenticate(params[:password_challenge])
+  redirect_to edit_account_path(@account), 
+              alert: "Incorrect password. Workspace was not deleted."
+  return
+end
+
+# 2. Last Man Standing (Safety)
+if Current.user.accounts.count == 1
+  redirect_to edit_account_path(@account), 
+              alert: "You cannot delete your only remaining workspace."
+  return
+end
+```
+
+## Team Management
+
+### Understanding Team Roles
+
+Trellixe uses a role-based permission system:
+
+| Role | Permissions |
+|------|-------------|
+| **Admin** | Full workspace access, manage team, edit settings, delete workspace |
+| **Member** | Add/edit contacts, create events, manage follow-ups, view team |
+| **Viewer** | Read-only access to contacts, events, and reports |
+
+<Note>
+  The workspace creator is automatically assigned the admin role and cannot be removed unless another admin exists.
+</Note>
+
+### Viewing Team Members
+
+View all workspace members at `/members`:
+
+- Full member directory
+- Role indicators
+- Join date information
+- User activity status
+
+### Inviting Team Members
+
+Invite new members to your workspace at `/team_invitations/new`:
+
+<Steps>
+  <Step title="Navigate to Invitations">
+    Click "Invite Team Member" in team settings or members page
+  </Step>
+  
+  <Step title="Enter Email Address">
+    Provide the email address of the person you want to invite
+  </Step>
+  
+  <Step title="Select Role">
+    Choose appropriate role (Admin, Member, or Viewer)
+  </Step>
+  
+  <Step title="Send Invitation">
+    Email invitation is sent with unique acceptance link
+  </Step>
+  
+  <Step title="Track Status">
+    View pending invitations in team management
+  </Step>
+</Steps>
+
+**Invitation features:**
+- Unique invitation tokens with expiration
+- Resend invitation option for unaccepted invites
+- Cancel pending invitations before acceptance
+- Email notifications to invited users
+
+<Warning>
+  Check workspace seat limits before inviting members. Pending invitations count toward seat usage.
+</Warning>
+
+### Managing Team Members
+
+**Update member roles** at `/memberships/:id/edit`:
+
+1. Navigate to team member list
+2. Select member to modify
+3. Change role (Admin, Member, Viewer)
+4. Save changes
+
+**Remove team members** via `/memberships/:id` (DELETE):
+
+<Warning>
+  Removing a team member immediately revokes their access to the workspace. They will no longer see workspace data or receive notifications.
+</Warning>
+
+### Leaving a Workspace
+
+Team members can leave workspaces they don't own:
+
+1. Navigate to workspace settings
+2. Click "Leave Workspace"
+3. Confirm action
+4. Switch to another workspace
+
+<Note>
+  Admins cannot leave a workspace if they are the only admin. Promote another member to admin first, or delete the workspace.
+</Note>
+
+## Session Management
+
+### Active Sessions
+
+View and manage all your active sessions at `/sessions`:
+
+**Session information includes:**
+- Browser and device details
+- IP address
+- Last activity timestamp
+- Creation date
+- Current session indicator
+
+<Tip>
+  Regularly review your active sessions for security. If you see unfamiliar sessions, sign them out immediately and change your password.
+</Tip>
+
+### Managing Sessions
+
+**Sign out specific sessions:**
+1. Visit `/sessions`
+2. Find the session to terminate
+3. Click "Sign Out" next to that session
+4. Session is immediately destroyed
+
+**Sign out all other sessions:**
+- Useful if you suspect unauthorized access
+- Keeps your current session active
+- Forces re-authentication on other devices
+
+<Warning>
+  Signing out of all sessions will require you to sign back in on all devices, including mobile apps and other browsers.
+</Warning>
+
+## Account Security
+
+### Password Challenge
+
+Sensitive operations require password verification:
+
+- Changing email address
+- Updating password
+- Deleting workspace
+- (Future: enabling 2FA, viewing API keys)
+
+**Password challenge flow:**
+1. Initiate sensitive operation
+2. Prompted for current password
+3. Password verified against stored hash
+4. Operation proceeds if correct
+5. Error displayed if incorrect
+
+```ruby
+# Password challenge example (accounts_controller.rb:43-46)
+unless Current.user.authenticate(params[:password_challenge])
+  redirect_to edit_account_path(@account), 
+              alert: "Incorrect password. Workspace was not deleted."
+  return
+end
+```
+
+### Email Verification Status
+
+Your verification status affects available features:
+
+**Verified status:**
+- ✅ Full access to all features
+- ✅ Can reset password
+- ✅ Can receive security notifications
+- ✅ OAuth users auto-verified
+
+**Unverified status:**
+- ⚠️ Limited functionality
+- ❌ Cannot reset password
+- ⚠️ Must verify to unlock features
+
+<Tip>
+  Complete email verification immediately after signing up to unlock all Trellixe features.
+</Tip>
+
+## Workspace Capacity
+
+### Seat Management
+
+Each workspace has a seat limit (configurable per plan):
+
+**Seat calculation:**
+```ruby
+# Seats used calculation (account.rb:29-31)
+def seats_used
+  memberships.count + team_invitations.count
+end
+```
+
+**What counts as a seat:**
+- Active team members
+- Pending invitations
+
+**Seat limit reached:**
+- Cannot invite new members
+- Must remove members or upgrade plan
+- Existing members unaffected
+
+<Note>
+  Cancelled invitations free up seats immediately, allowing you to invite different members.
+</Note>
+
+## Settings Navigation
+
+Trellixe settings are organized for easy access:
+
+### Settings Routes
+
+| Path | Purpose |
+|------|----------|
+| `/settings` | Main settings hub |
+| `/settings/workspace/general` | Workspace settings |
+| `/identity/email/edit` | Update email |
+| `/identity/name/edit` | Update name |
+| `/password/edit` | Change password |
+| `/sessions` | Manage sessions |
+| `/members` | Team directory |
+| `/team_invitations/new` | Invite members |
+
+### Settings Layout
+
+Settings use Turbo Frames for smooth navigation:
+- Settings sidebar for quick access
+- Main content area updates without page reload
+- Breadcrumb navigation for context
+- Back buttons to previous views
+
+<Tip>
+  Settings pages use Turbo Frames for instant updates. Changes apply without full page reloads, providing a modern app experience.
+</Tip>
+
+## Onboarding & Defaults
+
+### First-Time Setup
+
+When you create a Trellixe account:
+
+<Steps>
+  <Step title="Account Creation">
+    Provide email, name, and password during registration
+  </Step>
+  
+  <Step title="Automatic Workspace">
+    Personal workspace created automatically (e.g., "David's Workspace")
+  </Step>
+  
+  <Step title="Admin Role Assigned">
+    You're the workspace admin with full permissions
+  </Step>
+  
+  <Step title="Email Verification">
+    Verification email sent to complete setup
+  </Step>
+</Steps>
+
+```ruby
+# Auto-create workspace (user.rb:57-68)
+def create_personal_workspace
+  return if memberships.any?  # Skip if invited to workspace
+
+  transaction do
+    workspace_name = name.present? ? 
+      "#{name.split.first}'s Workspace" : 
+      "Personal Workspace"
+
+    personal_account = Account.create!(name: workspace_name)
+    memberships.create!(account: personal_account, role: "admin")
+  end
+end
+```
+
+### Default Settings
+
+New accounts have these defaults:
+- **Verified:** false (except OAuth users)
+- **Time zone:** Browser detected or nil
+- **Role:** Admin in personal workspace
+- **Sessions:** One active session created
+
+## Best Practices
+
+<Accordion title="Profile Management Best Practices">
+  1. **Complete your profile early:** Add name and verify email immediately
+  2. **Use descriptive workspace names:** Help team members identify workspaces
+  3. **Review sessions monthly:** Check for unfamiliar devices
+  4. **Set correct timezone:** Ensures accurate follow-up reminders
+  5. **Verify email changes promptly:** Complete verification after updating email
+</Accordion>
+
+<Accordion title="Workspace Organization Best Practices">
+  1. **Separate personal and team:** Use different workspaces for different contexts
+  2. **Descriptive naming:** Use clear names like "Tech Conference Team" not "Workspace 1"
+  3. **Assign appropriate roles:** Give team members minimum required permissions
+  4. **Regular member audits:** Remove inactive members to free seats
+  5. **Promote multiple admins:** Ensure workspace continuity if admin leaves
+</Accordion>
+
+<Accordion title="Security Best Practices">
+  1. **Strong passwords:** Use maximum length (12+ characters)
+  2. **Unique passwords:** Don't reuse passwords from other sites
+  3. **Monitor sessions:** Review active sessions regularly
+  4. **Verify email changes:** Always verify new email addresses
+  5. **Password challenge awareness:** Understand why you're asked for password
+  6. **Sign out unused sessions:** Remove sessions from old devices
+</Accordion>
+
+## Troubleshooting
+
+### Can't Update Settings
+
+**Problem:** Settings changes not saving
+
+**Solutions:**
+- Verify you have permission (admin for workspace settings)
+- Check for validation errors (email format, password length)
+- Ensure password challenge is correct (if prompted)
+- Refresh page and try again
+
+### Can't Switch Workspaces
+
+**Problem:** Workspace not appearing in switcher
+
+**Solutions:**
+- Verify you're a member of the workspace
+- Check if you've accepted team invitation
+- Ensure workspace hasn't been deleted
+- Sign out and back in to refresh memberships
+
+### Can't Invite Team Members
+
+**Problem:** "Seat limit reached" error
+
+**Solutions:**
+- Check workspace seat usage
+- Remove inactive members
+- Cancel pending invitations
+- Upgrade workspace plan (if applicable)
+
+### Profile Changes Not Appearing
+
+**Problem:** Name or email changes not visible
+
+**Solutions:**
+- Name changes use Turbo Stream (should be instant)
+- Email changes require verification to take full effect
+- Hard refresh browser (Ctrl+F5 / Cmd+Shift+R)
+- Check for JavaScript errors in console
+
+## Related Resources
+
+- [Authentication](/guides/authentication) - Sign in, password management, and security
+- [Notifications](/guides/notifications) - Manage notifications and preferences
+- [Best Practices](/guides/best-practices) - Optimize your Trellixe workflow

@@ -1,0 +1,179 @@
+---
+title: "Workspaces"
+description: "Create and manage multi-tenant workspaces (accounts) in Trellixe"
+---
+
+Workspaces in Trellixe provide isolated environments for different teams or organizations. Each workspace has its own contacts, events, and team members, enabling true multi-tenant collaboration.
+
+## Understanding Workspaces
+
+A workspace (internally called an "account") is the top-level organizational unit in Trellixe. Key characteristics:
+
+- **Isolated Data**: Each workspace has separate contacts, events, and invitations
+- **Independent Teams**: Members and permissions are workspace-specific
+- **Flexible Access**: Users can belong to multiple workspaces and switch between them
+- **Owner Management**: Polymorphic ownership ensures data belongs to the workspace
+
+<Info>
+  Workspaces use the public ID prefix `acct_` for secure, non-sequential identification.
+</Info>
+
+## Creating a Workspace
+
+<Steps>
+  <Step title="Navigate to Create Workspace">
+    Access the workspace creation form from your dashboard or settings.
+  </Step>
+  
+  <Step title="Provide Workspace Details">
+    Enter a name for your workspace. This will be visible to all team members.
+    
+    ```ruby
+    # app/controllers/accounts_controller.rb:9-24
+    validates :name, presence: true
+    ```
+  </Step>
+  
+  <Step title="Automatic Admin Role">
+    You are automatically assigned as the workspace Admin upon creation.
+    
+    <Note>
+      The creator is always granted Admin privileges and can invite team members immediately.
+    </Note>
+  </Step>
+  
+  <Step title="Context Switch">
+    Your session automatically switches to the new workspace, making it your active context.
+  </Step>
+</Steps>
+
+## Managing Your Workspace
+
+### Editing Workspace Settings
+
+Admins can update workspace details:
+
+- Navigate to **Settings > Workspace > General**
+- Modify the workspace name
+- Save changes to update
+
+<Info>
+  Only workspace Admins can edit workspace settings. See [Roles & Permissions](/team/roles-permissions) for details.
+</Info>
+
+### Switching Between Workspaces
+
+If you belong to multiple workspaces:
+
+1. Access the workspace switcher from your dashboard
+2. Select the target workspace from your list
+3. Your session context switches immediately
+4. All data displayed reflects the new workspace
+
+The switch is handled via `app/controllers/accounts_controller.rb:59-65`:
+
+```ruby
+session[:current_account_id] = target_account.id
+```
+
+### Personal vs. Team Workspaces
+
+Trellixe distinguishes between personal and team workspaces:
+
+**Personal Workspace**
+- Contains only one member (you)
+- That member has Admin role
+- Ideal for individual use
+
+**Team Workspace**
+- Multiple members with various roles
+- Collaborative features enabled
+- Shared contacts and events
+
+<Note>
+  The system automatically detects workspace type using `app/models/account.rb:24-27`.
+</Note>
+
+## Seat Management
+
+Workspaces have seat limits that control team size:
+
+### Seats Used Calculation
+
+```ruby
+# app/models/account.rb:29-31
+seats_used = memberships.count + team_invitations.count
+```
+
+Both active members and pending invitations count toward your seat limit.
+
+### Seat Limit Enforcement
+
+When the seat limit is reached:
+
+- New invitations are blocked
+- Error message prompts workspace upgrade
+- Existing members remain unaffected
+
+<Info>
+  Remove pending invitations or inactive members to free up seats, or upgrade your plan.
+</Info>
+
+## Deleting a Workspace
+
+<Note>
+  Workspace deletion is permanent and cannot be undone. All data will be lost.
+</Note>
+
+### Deletion Requirements
+
+<Steps>
+  <Step title="Admin Access Required">
+    Only workspace Admins can delete workspaces.
+  </Step>
+  
+  <Step title="Password Verification">
+    You must enter your password to confirm deletion for security.
+    
+    ```ruby
+    # app/controllers/accounts_controller.rb:43-46
+    unless Current.user.authenticate(params[:password_challenge])
+      redirect_to edit_account_path(@account), 
+                  alert: "Incorrect password. Workspace was not deleted."
+    end
+    ```
+  </Step>
+  
+  <Step title="Last Workspace Protection">
+    You cannot delete your only remaining workspace.
+    
+    <Info>
+      The system prevents deletion if this is your last workspace to ensure you maintain access to Trellixe.
+    </Info>
+  </Step>
+  
+  <Step title="Cascade Deletion">
+    When deleted, the workspace removes:
+    - All memberships
+    - All team invitations
+    - All contacts (polymorphic owner)
+    - All events (polymorphic owner)
+    - All notifications
+  </Step>
+</Steps>
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Invite Team Members" icon="user-plus" href="/team/invitations">
+    Learn how to send invitations and build your team
+  </Card>
+  
+  <Card title="Manage Members" icon="users" href="/team/members">
+    Control team member access and roles
+  </Card>
+  
+  <Card title="Roles & Permissions" icon="shield" href="/team/roles-permissions">
+    Understand the permission system
+  </Card>
+</CardGroup>

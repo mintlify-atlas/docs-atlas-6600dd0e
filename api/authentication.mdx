@@ -1,0 +1,395 @@
+---
+title: Authentication
+description: Learn how to authenticate with the Trellixe API using session-based authentication and manage your sessions
+---
+
+## Overview
+
+Trellixe uses session-based authentication with HTTP-only cookies. This approach provides secure authentication for web and API clients while protecting against XSS attacks.
+
+<Note>
+  All authentication endpoints are available without requiring an existing session, except for session management endpoints (listing and destroying sessions).
+</Note>
+
+## Authentication Methods
+
+Trellixe supports multiple authentication methods:
+
+1. **Email and Password** - Standard authentication
+2. **Social Login** - OAuth via third-party providers
+3. **Passwordless Login** - Magic link authentication (via SignInToken)
+
+## Creating a Session
+
+### Email and Password Authentication
+
+To authenticate and create a session, send your credentials to the sign-in endpoint:
+
+<CodeGroup>
+
+```bash cURL
+curl -X POST https://your-domain.com/sign_in \
+  -H "Content-Type: application/x-www-form-urlencoded" \
+  -c cookies.txt \
+  -d "email=user@example.com" \
+  -d "password=yourpassword"
+```
+
+```javascript JavaScript
+fetch('https://your-domain.com/sign_in', {
+  method: 'POST',
+  headers: {
+    'Content-Type': 'application/x-www-form-urlencoded',
+  },
+  credentials: 'include', // Important for cookie handling
+  body: new URLSearchParams({
+    email: 'user@example.com',
+    password: 'yourpassword'
+  })
+})
+.then(response => {
+  if (response.ok) {
+    console.log('Signed in successfully');
+  }
+});
+```
+
+```python Python
+import requests
+
+session = requests.Session()
+
+response = session.post(
+    'https://your-domain.com/sign_in',
+    data={
+        'email': 'user@example.com',
+        'password': 'yourpassword'
+    }
+)
+
+if response.ok:
+    print('Signed in successfully')
+    # Session cookies are automatically stored in the session object
+```
+
+```ruby Ruby
+require 'httparty'
+
+class TrellixeClient
+  include HTTParty
+  base_uri 'https://your-domain.com'
+  
+  def initialize
+    @cookies = {}
+  end
+  
+  def sign_in(email, password)
+    response = self.class.post('/sign_in',
+      body: { email: email, password: password },
+      headers: { 'Cookie' => cookies_header }
+    )
+    
+    # Store cookies from response
+    response.get_fields('Set-Cookie')&.each do |cookie|
+      @cookies.merge!(parse_cookie(cookie))
+    end
+    
+    response.success?
+  end
+end
+```
+
+</CodeGroup>
+
+### Response
+
+On successful authentication:
+
+- **Status:** 302 Redirect to root path
+- **Cookie:** `session_token` (HTTP-only, permanent)
+- **Flash Notice:** "Signed in successfully"
+
+On failed authentication:
+
+- **Status:** 302 Redirect to sign-in page
+- **Flash Alert:** "That email or password is incorrect"
+
+<Warning>
+  The session cookie is HTTP-only and cannot be accessed via JavaScript. Your HTTP client must support automatic cookie handling.
+</Warning>
+
+## Using Authenticated Sessions
+
+Once authenticated, include the session cookie in all subsequent requests:
+
+<CodeGroup>
+
+```bash cURL
+curl https://your-domain.com/contacts \
+  -b cookies.txt \
+  -H "Accept: application/json"
+```
+
+```javascript JavaScript
+// Browser automatically includes cookies with credentials: 'include'
+fetch('https://your-domain.com/contacts', {
+  credentials: 'include',
+  headers: {
+    'Accept': 'application/json'
+  }
+});
+```
+
+```python Python
+# Session object automatically includes cookies
+response = session.get('https://your-domain.com/contacts')
+contacts = response.json()
+```
+
+</CodeGroup>
+
+## Session Management
+
+### List Active Sessions
+
+View all active sessions for your account:
+
+```bash
+GET /sessions
+```
+
+<CodeGroup>
+
+```bash cURL
+curl https://your-domain.com/sessions \
+  -b cookies.txt \
+  -H "Accept: application/json"
+```
+
+```javascript JavaScript
+fetch('https://your-domain.com/sessions', {
+  credentials: 'include',
+  headers: { 'Accept': 'application/json' }
+})
+.then(response => response.json())
+.then(sessions => console.log(sessions));
+```
+
+</CodeGroup>
+
+Each session includes:
+
+- `id` - Session identifier
+- `user_id` - Associated user ID
+- `user_agent` - Browser/client information
+- `ip_address` - IP address of the session
+- `created_at` - When the session was created
+- `sudo_at` - Timestamp of last elevated privilege confirmation
+
+### Sign Out a Session
+
+Destroy a specific session:
+
+```bash
+DELETE /sessions/{session_id}
+```
+
+<CodeGroup>
+
+```bash cURL
+curl -X DELETE https://your-domain.com/sessions/123 \
+  -b cookies.txt
+```
+
+```javascript JavaScript
+fetch('https://your-domain.com/sessions/123', {
+  method: 'DELETE',
+  credentials: 'include'
+})
+.then(() => console.log('Session logged out'));
+```
+
+```python Python
+session.delete('https://your-domain.com/sessions/123')
+print('Session logged out')
+```
+
+</CodeGroup>
+
+## Sudo Mode
+
+Certain sensitive operations require "sudo mode" - elevated privilege confirmation. Sessions automatically enter sudo mode upon creation and remain in sudo mode for 30 minutes.
+
+<Note>
+  Sudo mode is required for sensitive operations like changing passwords, updating email addresses, or managing billing information.
+</Note>
+
+### Check Sudo Status
+
+A session is in sudo mode if `sudo_at` is within the last 30 minutes:
+
+```ruby
+session.sudo? # Returns true if sudo_at > 30.minutes.ago
+```
+
+### Re-authenticate for Sudo
+
+If sudo mode has expired, you'll be redirected to re-confirm your password:
+
+```bash
+POST /sessions/sudo
+```
+
+After successful re-authentication, the `sudo_at` timestamp is updated.
+
+## Social Authentication
+
+Trellixe supports OAuth authentication via third-party providers:
+
+### Supported Providers
+
+- Google
+- GitHub
+- And other OmniAuth-compatible providers
+
+### OAuth Flow
+
+1. Redirect user to provider:
+   ```bash
+   GET /auth/{provider}
+   ```
+
+2. Provider redirects back to callback:
+   ```bash
+   GET/POST /auth/{provider}/callback
+   ```
+
+3. Session is created automatically on successful authentication
+
+### Handling OAuth Failures
+
+If OAuth authentication fails:
+
+```bash
+GET /auth/failure
+```
+
+You'll be redirected to the sign-in page with an error message.
+
+## Passwordless Authentication
+
+Trellixe supports passwordless authentication via magic links:
+
+### Request Magic Link
+
+```bash
+POST /sessions/passwordless
+```
+
+Provide your email address, and a sign-in token will be sent to your email.
+
+### Verify Token
+
+```bash
+GET /sessions/passwordless/edit?token={sign_in_token}
+```
+
+The token is validated and a session is created automatically.
+
+<Warning>
+  Sign-in tokens are single-use and expire after a set time period. Request a new token if yours has expired.
+</Warning>
+
+## User Activities
+
+Trellixe automatically tracks authentication events:
+
+- **signed_in** - Created when a session is established
+- **signed_out** - Created when a session is destroyed
+
+View your authentication history:
+
+```bash
+GET /authentications/user_activities
+```
+
+## Best Practices
+
+<AccordionGroup>
+  <Accordion title="Keep Sessions Secure">
+    - Always use HTTPS in production
+    - Never share session cookies
+    - Sign out unused sessions regularly
+    - Enable HTTP-only cookies (enabled by default)
+  </Accordion>
+
+  <Accordion title="Handle Session Expiration">
+    - Session cookies are permanent but can be destroyed server-side
+    - Implement re-authentication flows for expired sessions
+    - Check for 401/403 responses and redirect to sign-in
+  </Accordion>
+
+  <Accordion title="Multi-Device Access">
+    - Users can have multiple active sessions
+    - Each device/browser gets its own session
+    - Review active sessions periodically via `/sessions`
+  </Accordion>
+
+  <Accordion title="API Client Implementation">
+    - Use a session/cookie-aware HTTP client
+    - Store cookies securely between requests
+    - Implement automatic re-authentication on 401 responses
+  </Accordion>
+</AccordionGroup>
+
+## Request Details Tracking
+
+Every authenticated request automatically captures:
+
+- **IP Address** - Client IP for security auditing
+- **User Agent** - Browser/client information
+
+This information is stored with sessions and used for:
+
+- Security monitoring
+- Session identification
+- Suspicious activity detection
+
+## Error Responses
+
+### Not Authenticated
+
+If you make a request without a valid session:
+
+- **Status:** 302 Redirect to `/sign_in`
+- **Alert:** "You must be signed in to access this page."
+
+### Invalid Credentials
+
+If sign-in credentials are incorrect:
+
+- **Status:** 302 Redirect to `/sign_in`
+- **Alert:** "That email or password is incorrect"
+
+### Session Not Found
+
+If attempting to manage a session that doesn't exist or belong to you:
+
+- **Status:** 404 Not Found or 403 Forbidden
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="User Authentication Guide" icon="user" href="/guides/authentication">
+    Manage user identity and profile settings
+  </Card>
+  <Card title="Contacts API" icon="users" href="/api/contacts">
+    Start working with contacts
+  </Card>
+  <Card title="Account Management" icon="building" href="/api/accounts">
+    Manage workspaces and switch contexts
+  </Card>
+  <Card title="Security Settings" icon="shield" href="/guides/settings">
+    Configure password and security preferences
+  </Card>
+</CardGroup>

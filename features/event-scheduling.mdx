@@ -1,0 +1,231 @@
+---
+title: Event Scheduling
+description: Create and manage networking events, invite contacts, track attendance, and view event analytics in your Trellixe calendar.
+---
+
+Trillixe's event management system helps you organize networking events, meetings, and gatherings while tracking which contacts attend and managing follow-up workflows.
+
+## Creating an Event
+
+Create a new event from the Events page:
+
+<Steps>
+  <Step title="Navigate to Events">
+    Click on "Events" in your main navigation. You'll see your events displayed in either calendar or list view.
+  </Step>
+  
+  <Step title="Open Event Form">
+    Click the calendar icon button in the top right corner (desktop) or the floating blue button in the bottom right (mobile).
+  </Step>
+  
+  <Step title="Enter Event Details">
+    Fill out the event form with the following required information:
+    
+    - **Name** (required) - The title of your event
+    - **Starts At** (required) - Date and time when the event begins
+    - **Duration in Minutes** (required) - How long the event will last (must be greater than 0)
+    - **Invite Contacts** (optional) - Select contacts to invite from a dropdown list
+  </Step>
+  
+  <Step title="Save the Event">
+    Click "Create Event" to add it to your calendar. If you selected contacts to invite, invitations will be automatically created for them.
+  </Step>
+</Steps>
+
+<Note>
+Events are associated with your account, so all team members can view and manage events. This enables collaborative event planning and follow-up.
+</Note>
+
+## Viewing Events
+
+Trillixe offers two ways to view your events:
+
+### Calendar View
+
+The calendar view displays events visually by date:
+
+- Shows events for the entire month
+- Navigate between months using arrow buttons
+- Click on any event to view its details
+- Events appear on the date they start
+- Color-coded badges show event information at a glance
+
+### List View
+
+The list view shows events in a table format with filtering options:
+
+<Accordion title="Upcoming Events">
+Displays events that haven't finished yet, sorted by start date (earliest first). This includes:
+- Events starting in the future
+- Events currently in progress
+</Accordion>
+
+<Accordion title="Past Events">
+Shows events that have completely finished, sorted by start date (most recent first). Use this to review historical events and their outcomes.
+</Accordion>
+
+Switch between views using the tabs at the top of the Events page.
+
+## Event Detail Page
+
+Click on any event to view comprehensive information:
+
+### Event Header
+
+Displays:
+- Event name
+- Full date and time range (start time and calculated end time based on duration)
+- Edit button to modify event details
+
+### Event Statistics Dashboard
+
+Real-time metrics showing:
+- **Total Guests** - Number of contacts invited to the event
+- **Attended** - Count of guests who attended (marked as attended status)
+
+These statistics update automatically as you manage invitations.
+
+### Guest Management
+
+The event detail page includes powerful tools for managing attendees:
+
+#### Inviting Additional Contacts
+
+Use the "Invite Contacts" form to add more guests:
+
+1. Select one or more contacts from the dropdown menu
+2. The dropdown only shows contacts who haven't already been invited
+3. Click "Create Invitation" to add them to the guest list
+
+<Note>
+Each contact can only be invited once per event. Already-invited contacts won't appear in the dropdown to prevent duplicate invitations.
+</Note>
+
+#### Guest List Table
+
+The guest list shows all invited contacts with:
+- Checkbox for bulk actions
+- Contact name (linked to their profile)
+- Status (Invited or Attended)
+- Notes field for event-specific context
+- Individual action buttons
+
+## Managing Invitations
+
+### Marking Attendance
+
+Track who actually attended your event:
+
+**Individual Attendance:**
+1. Find the contact in the guest list
+2. Click "Mark Attended" button in their row
+
+**Bulk Attendance:**
+1. Select multiple guests using checkboxes
+2. A floating action bar appears at the bottom of the screen
+3. Click "Mark Attended" to update all selected invitations
+
+<Warning>
+When you mark a guest as "Attended," Trellixe automatically creates follow-up tasks for your team members to reconnect with that contact. Make sure you only mark people who actually attended.
+</Warning>
+
+### Resetting Invitation Status
+
+If you accidentally marked someone as attended:
+
+1. Select their invitation using the checkbox
+2. Click "Reset" in the bulk action bar
+3. This changes their status back to "Invited"
+
+### Adding Event Notes
+
+Add context about specific attendees:
+
+1. Find the contact in the guest list
+2. Click the "Add Notes" button
+3. Enter details like conversation topics, interests, or follow-up ideas
+4. These notes appear in follow-up tasks to help team members personalize outreach
+
+## Follow-up Activity
+
+The event detail page includes a "Follow-up Activity" section that displays:
+
+- All interaction logs resulting from this event
+- User who completed the follow-up
+- Contact they followed up with
+- Detailed notes about the interaction
+- How long ago the interaction occurred
+
+This section helps you track the ROI of your events by showing which connections turned into meaningful conversations.
+
+## Editing Events
+
+To modify event details:
+
+1. Navigate to the event detail page
+2. Click the "Edit Event" button
+3. Update any fields (name, start time, duration, or add more contacts to invite)
+4. Click "Update Event" to save changes
+
+<Note>
+Editing an event and adding contacts to the invite list will create new invitations for those contacts without affecting existing invitations.
+</Note>
+
+## Deleting Events
+
+To remove an event:
+
+1. Navigate to the event detail page or find it in the events list
+2. Click the delete button
+3. Confirm the deletion when prompted
+
+<Warning>
+Deleting an event permanently removes:
+- The event itself
+- All invitations associated with it
+- All follow-up tasks for that event
+- All interaction logs linked to those tasks
+
+This action cannot be undone. Consider if you want to preserve this relationship history before deleting.
+</Warning>
+
+## Searching and Filtering Events
+
+Use the search form in list view to filter events:
+
+- **Search by name** - Find events by their title
+- **Filter by date range** - Show events within specific start and end dates
+- **Filter by contact** - See all events a specific contact was invited to
+- **Filter by scope** - Toggle between upcoming and past events
+
+## Best Practices
+
+<Accordion title="Consistent Event Naming">
+Use a clear naming convention for events:
+- **Good**: "Q1 Customer Networking Dinner - March 2026"
+- **Good**: "SaaS Founders Meetup #12"
+- **Less helpful**: "Dinner" or "Meetup"
+
+Descriptive names help your team quickly identify events in lists and follow-up tasks.
+</Accordion>
+
+<Accordion title="Realistic Duration">
+Set accurate duration estimates so your calendar view correctly shows when events end. This prevents scheduling conflicts and gives your team accurate context.
+</Accordion>
+
+<Accordion title="Mark Attendance Promptly">
+Update attendance status during or immediately after the event while details are fresh. This ensures follow-up tasks are created in a timely manner and your team can reach out while the event is still top-of-mind for contacts.
+</Accordion>
+
+<Accordion title="Use Event Notes">
+Encourage team members who attend events to add notes for each guest they spoke with. These notes are invaluable for follow-up calls and help team members who weren't present understand the relationship context.
+</Accordion>
+
+## Event Calendar Optimization
+
+The calendar view is optimized for performance:
+
+- Only loads events within the visible month range
+- Navigate to different months to view additional events
+- The current month is highlighted
+- Today's date is marked for easy reference

@@ -1,0 +1,397 @@
+---
+title: Events API
+description: Create and manage networking events with comprehensive CRUD operations
+---
+
+## Overview
+
+The Events API allows you to manage networking events in your workspace. Events can have multiple contacts invited and support duration tracking, calendar views, and attendance management.
+
+## List Events
+
+<CodeGroup>
+```bash GET /events
+curl -X GET "https://api.trellixe.com/events" \
+  -H "Authorization: Bearer YOUR_API_TOKEN"
+```
+</CodeGroup>
+
+Retrieve a paginated list of events with calendar and list views.
+
+### Query Parameters
+
+<ParamField query="date" type="date">
+  Date for calendar view (format: YYYY-MM-DD)
+</ParamField>
+
+<ParamField query="scope" type="string" default="upcoming">
+  Filter events by time scope: `upcoming` or `past`
+</ParamField>
+
+<ParamField query="q[name_cont]" type="string">
+  Filter events by name (partial match)
+</ParamField>
+
+<ParamField query="q[starts_at_gteq]" type="datetime">
+  Filter events starting on or after this date
+</ParamField>
+
+<ParamField query="q[starts_at_lteq]" type="datetime">
+  Filter events starting on or before this date
+</ParamField>
+
+<ParamField query="page" type="integer" default="1">
+  Page number for pagination
+</ParamField>
+
+### Response
+
+<ResponseField name="events" type="array">
+  <ResponseField name="id" type="integer">
+    Unique identifier for the event
+  </ResponseField>
+  
+  <ResponseField name="name" type="string" required>
+    Event name
+  </ResponseField>
+  
+  <ResponseField name="starts_at" type="datetime" required>
+    When the event starts
+  </ResponseField>
+  
+  <ResponseField name="duration_in_minutes" type="integer" required>
+    Event duration in minutes
+  </ResponseField>
+  
+  <ResponseField name="ends_at" type="datetime">
+    Calculated end time (virtual attribute)
+  </ResponseField>
+  
+  <ResponseField name="owner_id" type="integer">
+    ID of the account that owns this event
+  </ResponseField>
+  
+  <ResponseField name="owner_type" type="string">
+    Type of owner (typically "Account")
+  </ResponseField>
+  
+  <ResponseField name="created_at" type="datetime">
+    Timestamp when the event was created
+  </ResponseField>
+  
+  <ResponseField name="updated_at" type="datetime">
+    Timestamp when the event was last updated
+  </ResponseField>
+  
+  <ResponseField name="invitation_summary" type="object">
+    <ResponseField name="total" type="integer">
+      Total number of invitations
+    </ResponseField>
+    <ResponseField name="attended" type="integer">
+      Number of contacts who attended
+    </ResponseField>
+  </ResponseField>
+</ResponseField>
+
+<CodeGroup>
+```json Response Example
+{
+  "events": [
+    {
+      "id": 10,
+      "name": "Product Launch Party",
+      "starts_at": "2026-03-15T18:00:00Z",
+      "duration_in_minutes": 120,
+      "ends_at": "2026-03-15T20:00:00Z",
+      "owner_id": 1,
+      "owner_type": "Account",
+      "created_at": "2026-02-01T10:00:00Z",
+      "updated_at": "2026-02-28T15:30:00Z",
+      "invitation_summary": {
+        "total": 25,
+        "attended": 18
+      }
+    }
+  ],
+  "pagination": {
+    "current_page": 1,
+    "total_pages": 3,
+    "total_count": 28
+  }
+}
+```
+</CodeGroup>
+
+---
+
+## Get Event
+
+<CodeGroup>
+```bash GET /events/:id
+curl -X GET "https://api.trellixe.com/events/10" \
+  -H "Authorization: Bearer YOUR_API_TOKEN"
+```
+</CodeGroup>
+
+Retrieve a specific event by ID, including invitations and attendance statistics.
+
+### Path Parameters
+
+<ParamField path="id" type="integer" required>
+  The ID of the event to retrieve
+</ParamField>
+
+### Query Parameters
+
+<ParamField query="q[contact_first_name_cont]" type="string">
+  Filter invitations by contact first name
+</ParamField>
+
+<ParamField query="q[status_eq]" type="string">
+  Filter invitations by status: `invited` or `attended`
+</ParamField>
+
+### Response
+
+<CodeGroup>
+```json Response Example
+{
+  "id": 10,
+  "name": "Product Launch Party",
+  "starts_at": "2026-03-15T18:00:00Z",
+  "duration_in_minutes": 120,
+  "ends_at": "2026-03-15T20:00:00Z",
+  "owner_id": 1,
+  "owner_type": "Account",
+  "stats": {
+    "total": 25,
+    "attended": 18
+  },
+  "invitations": [
+    {
+      "id": 42,
+      "contact_id": 1,
+      "contact_name": "John Doe",
+      "status": "attended",
+      "notes": "Interested in partnership"
+    }
+  ],
+  "available_contacts": [
+    {
+      "id": 5,
+      "first_name": "Jane",
+      "last_name": "Smith"
+    }
+  ]
+}
+```
+</CodeGroup>
+
+---
+
+## Create Event
+
+<CodeGroup>
+```bash POST /events
+curl -X POST "https://api.trellixe.com/events" \
+  -H "Authorization: Bearer YOUR_API_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "event": {
+      "name": "Quarterly Networking Mixer",
+      "starts_at": "2026-04-10T19:00:00Z",
+      "duration_in_minutes": 90,
+      "contact_ids": [1, 2, 3]
+    }
+  }'
+```
+</CodeGroup>
+
+Create a new event in your workspace. You can optionally invite contacts immediately by providing their IDs.
+
+### Request Body
+
+<ParamField body="event" type="object" required>
+  <ParamField body="name" type="string" required>
+    Event name (required)
+  </ParamField>
+  
+  <ParamField body="starts_at" type="datetime" required>
+    When the event starts (required, ISO 8601 format)
+  </ParamField>
+  
+  <ParamField body="duration_in_minutes" type="integer" required>
+    Event duration in minutes (required, must be greater than 0)
+  </ParamField>
+  
+  <ParamField body="contact_ids" type="array">
+    Array of contact IDs to invite to this event
+  </ParamField>
+</ParamField>
+
+### Response
+
+<CodeGroup>
+```json 201 Created
+{
+  "id": 11,
+  "name": "Quarterly Networking Mixer",
+  "starts_at": "2026-04-10T19:00:00Z",
+  "duration_in_minutes": 90,
+  "ends_at": "2026-04-10T20:30:00Z",
+  "owner_id": 1,
+  "owner_type": "Account",
+  "created_at": "2026-03-03T10:00:00Z",
+  "updated_at": "2026-03-03T10:00:00Z",
+  "message": "Event was successfully submitted."
+}
+```
+
+```json 422 Unprocessable Entity
+{
+  "errors": {
+    "name": ["can't be blank"],
+    "starts_at": ["can't be blank"],
+    "duration_in_minutes": ["must be greater than 0"]
+  }
+}
+```
+</CodeGroup>
+
+### Validations
+
+- `name` is required
+- `starts_at` is required
+- `duration_in_minutes` is required and must be greater than 0
+- Invitations are automatically created for all provided `contact_ids`
+
+---
+
+## Update Event
+
+<CodeGroup>
+```bash PATCH /events/:id
+curl -X PATCH "https://api.trellixe.com/events/10" \
+  -H "Authorization: Bearer YOUR_API_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "event": {
+      "name": "Product Launch Party - Updated",
+      "duration_in_minutes": 150
+    }
+  }'
+```
+</CodeGroup>
+
+Update an existing event's details.
+
+### Path Parameters
+
+<ParamField path="id" type="integer" required>
+  The ID of the event to update
+</ParamField>
+
+### Request Body
+
+<ParamField body="event" type="object" required>
+  <ParamField body="name" type="string">
+    Event name
+  </ParamField>
+  
+  <ParamField body="starts_at" type="datetime">
+    When the event starts (ISO 8601 format)
+  </ParamField>
+  
+  <ParamField body="duration_in_minutes" type="integer">
+    Event duration in minutes (must be greater than 0)
+  </ParamField>
+  
+  <ParamField body="contact_ids" type="array">
+    Array of additional contact IDs to invite
+  </ParamField>
+</ParamField>
+
+### Response
+
+<CodeGroup>
+```json 200 OK
+{
+  "id": 10,
+  "name": "Product Launch Party - Updated",
+  "starts_at": "2026-03-15T18:00:00Z",
+  "duration_in_minutes": 150,
+  "ends_at": "2026-03-15T20:30:00Z",
+  "updated_at": "2026-03-03T11:15:00Z",
+  "message": "Event was successfully updated."
+}
+```
+
+```json 422 Unprocessable Entity
+{
+  "errors": {
+    "duration_in_minutes": ["must be greater than 0"]
+  }
+}
+```
+</CodeGroup>
+
+---
+
+## Delete Event
+
+<CodeGroup>
+```bash DELETE /events/:id
+curl -X DELETE "https://api.trellixe.com/events/10" \
+  -H "Authorization: Bearer YOUR_API_TOKEN"
+```
+</CodeGroup>
+
+Permanently delete an event from your workspace. This will also delete all associated invitations and follow-up tasks.
+
+### Path Parameters
+
+<ParamField path="id" type="integer" required>
+  The ID of the event to delete
+</ParamField>
+
+### Response
+
+<CodeGroup>
+```json 200 OK
+{
+  "message": "Event was successfully destroyed."
+}
+```
+</CodeGroup>
+
+---
+
+## Event Scopes
+
+The Events API provides intelligent filtering based on event timing:
+
+### Upcoming Events
+
+Events where the end time is in the future (includes currently ongoing events):
+
+```
+GET /events?scope=upcoming
+```
+
+### Past Events
+
+Events where the end time has already passed:
+
+```
+GET /events?scope=past
+```
+
+### Calendar Range
+
+Load events within a specific date range (optimized for calendar views):
+
+```
+GET /events?date=2026-03-15
+```
+
+This returns events for the entire month view including the beginning and end of weeks.

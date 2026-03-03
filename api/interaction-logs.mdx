@@ -1,0 +1,311 @@
+---
+title: Interaction Logs API
+description: Record follow-up interactions with contacts after events
+---
+
+## Overview
+
+The Interaction Logs API allows you to record notes about your follow-up interactions with contacts. When you create an interaction log for a follow-up task, the task is automatically marked as complete. All interaction logs are tied to a specific follow-up task, contact, and user.
+
+## Create Interaction Log
+
+<CodeGroup>
+```bash POST /follow_up_tasks/:follow_up_task_id/interaction_logs
+curl -X POST "https://api.trellixe.com/follow_up_tasks/23/interaction_logs" \
+  -H "Authorization: Bearer YOUR_API_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "interaction_log": {
+      "note": "Called to follow up on product interest. They want to schedule a demo next week."
+    }
+  }'
+```
+</CodeGroup>
+
+Create a new interaction log for a follow-up task. This automatically marks the task as complete.
+
+### Path Parameters
+
+<ParamField path="follow_up_task_id" type="integer" required>
+  The ID of the follow-up task to log an interaction for
+</ParamField>
+
+### Request Body
+
+<ParamField body="interaction_log" type="object" required>
+  <ParamField body="note" type="string" required>
+    Notes about the interaction with the contact (required)
+  </ParamField>
+</ParamField>
+
+### Response
+
+<CodeGroup>
+```json 201 Created
+{
+  "id": 42,
+  "follow_up_task_id": 23,
+  "contact_id": 1,
+  "user_id": 5,
+  "note": "Called to follow up on product interest. They want to schedule a demo next week.",
+  "created_at": "2026-03-16T10:30:00Z",
+  "updated_at": "2026-03-16T10:30:00Z",
+  "message": "Follow-up successfully logged!"
+}
+```
+
+```json 422 Unprocessable Entity
+{
+  "errors": {
+    "note": ["can't be blank"]
+  }
+}
+```
+</CodeGroup>
+
+### Automatic Task Completion
+
+When you create an interaction log, two things happen in a single database transaction:
+
+1. The interaction log is saved
+2. The associated follow-up task's `completed_at` is set to the current timestamp
+
+If either operation fails, both are rolled back to maintain data consistency.
+
+---
+
+## New Interaction Form
+
+<CodeGroup>
+```bash GET /follow_up_tasks/:follow_up_task_id/interaction_logs/new
+curl -X GET "https://api.trellixe.com/follow_up_tasks/23/interaction_logs/new" \
+  -H "Authorization: Bearer YOUR_API_TOKEN"
+```
+</CodeGroup>
+
+Retrieve the form data needed to create a new interaction log (typically used by web forms).
+
+### Path Parameters
+
+<ParamField path="follow_up_task_id" type="integer" required>
+  The ID of the follow-up task
+</ParamField>
+
+### Response
+
+<CodeGroup>
+```json Response Example
+{
+  "interaction_log": {
+    "follow_up_task_id": 23,
+    "contact_id": 1,
+    "user_id": 5,
+    "note": ""
+  },
+  "contact": {
+    "id": 1,
+    "first_name": "John",
+    "last_name": "Doe",
+    "email": "john.doe@example.com",
+    "phone_number": "+1-555-0123"
+  },
+  "event": {
+    "id": 10,
+    "name": "Product Launch Party",
+    "starts_at": "2026-03-15T18:00:00Z"
+  },
+  "invitation": {
+    "id": 45,
+    "status": "attended",
+    "notes": "Interested in partnership"
+  }
+}
+```
+</CodeGroup>
+
+---
+
+## Interaction Log Model
+
+### Attributes
+
+<ResponseField name="id" type="integer">
+  Unique identifier for the interaction log
+</ResponseField>
+
+<ResponseField name="note" type="string" required>
+  Notes about the interaction (required)
+</ResponseField>
+
+<ResponseField name="contact_id" type="integer" required>
+  ID of the contact (automatically set from follow-up task)
+</ResponseField>
+
+<ResponseField name="user_id" type="integer" required>
+  ID of the user who logged the interaction (automatically set to current user)
+</ResponseField>
+
+<ResponseField name="follow_up_task_id" type="integer" required>
+  ID of the associated follow-up task (from URL path)
+</ResponseField>
+
+<ResponseField name="created_at" type="datetime">
+  Timestamp when the log was created
+</ResponseField>
+
+<ResponseField name="updated_at" type="datetime">
+  Timestamp when the log was last updated
+</ResponseField>
+
+### Associations
+
+<ResponseField name="contact" type="object">
+  The contact this interaction is about (belongs_to)
+</ResponseField>
+
+<ResponseField name="user" type="object">
+  The user who logged this interaction (belongs_to)
+</ResponseField>
+
+<ResponseField name="follow_up_task" type="object">
+  The follow-up task this log completes (belongs_to)
+</ResponseField>
+
+---
+
+## Validations
+
+The Interaction Logs API enforces the following validations:
+
+<ParamField body="note" type="string" required>
+  Note is required and cannot be blank
+</ParamField>
+
+### Error Responses
+
+<CodeGroup>
+```json 422 Unprocessable Entity
+{
+  "errors": {
+    "note": ["can't be blank"]
+  }
+}
+```
+</CodeGroup>
+
+---
+
+## Security & Access Control
+
+Interaction logs have strict security controls:
+
+### User Scoping
+
+You can only create interaction logs for follow-up tasks assigned to you:
+
+```ruby
+@follow_up_task = current_user.follow_up_tasks.find(params[:follow_up_task_id])
+```
+
+Attempting to create a log for someone else's task will result in a 404 error.
+
+### Automatic Attribute Setting
+
+The following attributes are automatically set and cannot be overridden:
+
+- `contact_id` - Set from the follow-up task's invitation
+- `user_id` - Set to the current user
+- `follow_up_task_id` - Set from the URL path parameter
+
+---
+
+## Workflow Example
+
+### Complete Follow-Up Flow
+
+1. **Event Attendance**
+   - Contact attends "Product Launch Party" on March 15, 2026
+   - User marks invitation as "attended"
+
+2. **Automatic Task Creation**
+   - Follow-up task created, due March 16, 2026 at 9:00 AM
+   - Reminder job scheduled
+
+3. **Reminder Notification**
+   - User receives notification on March 16 at 9:00 AM
+   - "Time to follow up with John Doe from Product Launch Party"
+
+4. **Follow-Up & Logging**
+   - User calls John to discuss product interest
+   - User creates interaction log via POST request
+
+5. **Automatic Completion**
+   - Interaction log saved
+   - Follow-up task marked as complete
+   - Task removed from pending list
+
+### Example Request Flow
+
+<CodeGroup>
+```bash 1. Get Task Details
+curl -X GET "https://api.trellixe.com/follow_up_tasks" \
+  -H "Authorization: Bearer YOUR_API_TOKEN"
+
+# Response includes task ID 23 for John Doe
+```
+
+```bash 2. View Contact Context
+curl -X GET "https://api.trellixe.com/follow_up_tasks/23/interaction_logs/new" \
+  -H "Authorization: Bearer YOUR_API_TOKEN"
+
+# Response includes contact details and event info
+```
+
+```bash 3. Log Interaction
+curl -X POST "https://api.trellixe.com/follow_up_tasks/23/interaction_logs" \
+  -H "Authorization: Bearer YOUR_API_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "interaction_log": {
+      "note": "Discussed partnership opportunities. Sending proposal next week."
+    }
+  }'
+
+# Task 23 is now marked as complete
+```
+
+```bash 4. Verify Completion
+curl -X GET "https://api.trellixe.com/follow_up_tasks" \
+  -H "Authorization: Bearer YOUR_API_TOKEN"
+
+# Task 23 no longer appears in pending tasks
+```
+</CodeGroup>
+
+---
+
+## Transaction Safety
+
+Creating an interaction log uses an `ActiveRecord::Base.transaction` to ensure data consistency:
+
+```ruby
+ActiveRecord::Base.transaction do
+  @interaction_log.save!
+  @follow_up_task.update!(completed_at: Time.current)
+end
+```
+
+If either operation fails:
+- Both operations are rolled back
+- No data is saved
+- An error response is returned with validation details
+
+This ensures you never have an interaction log without a completed task, or a completed task without a log.
+
+---
+
+## Related Endpoints
+
+- [Follow-Up Tasks API](/api/follow-up-tasks) - Manage follow-up tasks
+- [Invitations API](/api/invitations) - Mark contacts as attended (creates tasks)
+- [Contacts API](/api/contacts) - View contact details and history

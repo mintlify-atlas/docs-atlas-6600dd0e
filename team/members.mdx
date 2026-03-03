@@ -1,0 +1,339 @@
+---
+title: "Managing Team Members"
+description: "View, manage, and remove team members in your Trellixe workspace"
+---
+
+The Members page provides a centralized view of your workspace team, including active members and pending invitations. Admins can manage roles, remove members, and monitor team composition.
+
+## Viewing Team Members
+
+Access the Members page from **Settings > Members** or your workspace navigation.
+
+### Active Members
+
+The members list displays:
+
+```ruby
+# app/controllers/members_controller.rb:6-8
+@active_memberships = Current.account.memberships
+                             .includes(:user)
+                             .order(role: :asc, created_at: :desc)
+```
+
+**Display Order**:
+1. Admins first (role: `:admin`)
+2. Members second (role: `:member`)
+3. Within each role group, newest first
+
+**Information Shown**:
+- User name and email
+- Role (Admin or Member)
+- Join date
+- Action buttons (role-based)
+
+### Pending Invitations
+
+Below active members, you'll see pending invitations:
+
+```ruby
+# app/controllers/members_controller.rb:12-13
+@pending_invitations = Current.account.team_invitations
+                              .order(created_at: :desc)
+```
+
+These show email addresses awaiting acceptance. See [Team Invitations](/team/invitations) for management details.
+
+## Managing Member Roles
+
+<Note>
+  Only workspace Admins can change member roles.
+</Note>
+
+### Changing a Role
+
+<Steps>
+  <Step title="Locate the Member">
+    Find the team member in your active members list.
+  </Step>
+  
+  <Step title="Select New Role">
+    Use the role dropdown to select:
+    - **Admin**: Full workspace control
+    - **Member**: Standard access
+    
+    See [Roles & Permissions](/team/roles-permissions) for detailed capabilities.
+  </Step>
+  
+  <Step title="Save Changes">
+    The update is processed immediately with validation.
+  </Step>
+  
+  <Step title="Member Notification">
+    The affected user receives a notification about their role change:
+    
+    ```ruby
+    # app/controllers/memberships_controller.rb:22-28
+    TeamNotifier::RoleChanged.with(
+      account_name: Current.account.name,
+      user_name: @membership.user.full_name,
+      role: new_role
+    ).deliver_later(@membership.user)
+    ```
+  </Step>
+</Steps>
+
+### Last Admin Protection
+
+You cannot demote the only Admin to Member:
+
+```ruby
+# app/controllers/memberships_controller.rb:10
+if @membership.admin? && new_role == "member" && 
+   Current.account.memberships.admin.count <= 1
+  flash[:alert] = "You cannot demote the only Admin."
+end
+```
+
+<Info>
+  This safeguard ensures every workspace always has at least one Admin who can manage settings and members.
+</Info>
+
+## Removing Team Members
+
+There are two scenarios for member removal:
+
+### Scenario 1: Admin Removing a Member
+
+<Steps>
+  <Step title="Admin Permission Required">
+    Only Admins can remove other members.
+  </Step>
+  
+  <Step title="Select Member to Remove">
+    Navigate to the member you want to remove and click the remove button.
+  </Step>
+  
+  <Step title="Confirmation">
+    The member is immediately removed from the workspace.
+  </Step>
+  
+  <Step title="Notifications Sent">
+    The system notifies:
+    
+    **To the removed user**:
+    ```ruby
+    # app/controllers/memberships_controller.rb:86-90
+    TeamNotifier::MemberRemoved.with(
+      account_name: account.name,
+      user_id: user_removed.id
+    ).deliver_later(user_removed)
+    ```
+    
+    **To other Admins** (audit trail):
+    ```ruby
+    # app/controllers/memberships_controller.rb:93-100
+    TeamNotifier::MemberRemoved.with(
+      account_name: account.name,
+      user_name: user_removed.full_name,
+      actor_name: Current.user.full_name
+    ).deliver_later(admin)
+    ```
+  </Step>
+</Steps>
+
+### Scenario 2: Member Leaving Voluntarily
+
+Any member can leave a workspace:
+
+<Steps>
+  <Step title="Initiate Leave Action">
+    Navigate to the Members page and locate your own membership.
+  </Step>
+  
+  <Step title="Last Admin Check">
+    If you're the only Admin, you cannot leave:
+    
+    ```ruby
+    # app/controllers/memberships_controller.rb:51-54
+    if @membership.admin? && Current.account.memberships.admin.count == 1
+      redirect_to members_path, 
+                  alert: "You cannot leave because you are the only Admin."
+    end
+    ```
+    
+    <Note>
+      Promote another member to Admin before leaving, or delete the workspace entirely.
+    </Note>
+  </Step>
+  
+  <Step title="Confirm Leave">
+    Your membership is removed and you lose access immediately.
+  </Step>
+  
+  <Step title="Session Update">
+    Your workspace context is cleared:
+    
+    ```ruby
+    # app/controllers/memberships_controller.rb:72
+    session[:current_account_id] = nil
+    ```
+    
+    You're redirected to the home page or another workspace.
+  </Step>
+  
+  <Step title="Admin Notification">
+    All workspace Admins are notified:
+    
+    ```ruby
+    # app/controllers/memberships_controller.rb:64-70
+    TeamNotifier::MemberLeft.with(
+      account_id: account.id,
+      user_name: user_left.full_name,
+      account_name: account.name
+    ).deliver_later(admin)
+    ```
+  </Step>
+</Steps>
+
+## Authorization Rules
+
+The membership controller enforces strict authorization:
+
+```ruby
+# app/controllers/memberships_controller.rb:43-47
+# Authorization: Admin OR Self
+unless admin? || @membership.user == Current.user
+  redirect_to members_path, alert: "Permission denied."
+end
+```
+
+**For role changes (`update`)**:
+- Only Admins
+
+**For removal (`destroy`)**:
+- Admins can remove any member
+- Any member can remove themselves (leave)
+
+## Member Lifecycle
+
+<Steps>
+  <Step title="Invitation Created">
+    Admin sends invitation, counts toward seat limit.
+  </Step>
+  
+  <Step title="Invitation Accepted">
+    User accepts, membership created with Member role:
+    
+    ```ruby
+    # app/models/membership.rb:8
+    enum :role, { member: "member", admin: "admin" }, default: :member
+    ```
+  </Step>
+  
+  <Step title="Role Management">
+    Admin can promote to Admin or demote to Member (with last Admin protection).
+  </Step>
+  
+  <Step title="Removal">
+    Member leaves or Admin removes, membership destroyed:
+    
+    ```ruby
+    # app/models/account.rb:6
+    has_many :memberships, dependent: :destroy
+    ```
+  </Step>
+</Steps>
+
+## Unique Membership Constraint
+
+Each user can only have one membership per workspace:
+
+```ruby
+# app/models/membership.rb:10
+validates :user_id, uniqueness: { scope: :account_id }
+```
+
+This prevents:
+- Duplicate memberships
+- Multiple roles for the same user
+- Confusion in the team directory
+
+## Team Notifications
+
+Trellixe keeps everyone informed of team changes:
+
+### Role Changed
+- **Recipient**: The affected user
+- **Trigger**: Admin changes role
+- **Content**: New role and workspace name
+
+### Member Removed
+- **Recipients**: The removed user + all other Admins
+- **Trigger**: Admin removes a member
+- **Content**: Who was removed, by whom, from which workspace
+
+### Member Left
+- **Recipients**: All workspace Admins
+- **Trigger**: Member voluntarily leaves
+- **Content**: Who left and from which workspace
+
+<Info>
+  All team notifications are delivered via Trellixe's notification system and are viewable in the notifications panel.
+</Info>
+
+## Best Practices
+
+<CardGroup cols={2}>
+  <Card title="Multiple Admins" icon="users-gear">
+    Maintain at least 2-3 Admins to prevent access issues if one Admin leaves or is unavailable.
+  </Card>
+  
+  <Card title="Regular Audits" icon="clipboard-check">
+    Periodically review your members list and remove inactive members to optimize seat usage.
+  </Card>
+  
+  <Card title="Role Assignment" icon="user-tag">
+    Only promote trusted team members to Admin. The role grants full workspace control.
+  </Card>
+  
+  <Card title="Offboarding Process" icon="right-from-bracket">
+    Remove members promptly when they leave your organization to protect workspace data.
+  </Card>
+</CardGroup>
+
+## Common Workflows
+
+### Promoting Your First Admin
+
+1. Invite a trusted team member
+2. Wait for them to accept (becomes Member)
+3. Navigate to Members page
+4. Change their role from Member to Admin
+5. Confirm they receive the notification
+
+### Handling Admin Departures
+
+1. Ensure you have other Admins (promote if needed)
+2. The departing Admin can then leave voluntarily
+3. Or another Admin can remove them
+4. Verify remaining Admins have necessary access
+
+### Cleaning Up Unused Seats
+
+1. Review active members for inactive users
+2. Check pending invitations for expired/stale entries
+3. Remove inactive members
+4. Revoke unused invitations
+5. Seats become available immediately
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Roles & Permissions" icon="shield" href="/team/roles-permissions">
+    Understand what Admins and Members can do
+  </Card>
+  
+  <Card title="Workspace Settings" icon="gear" href="/team/workspaces">
+    Learn about workspace management and deletion
+  </Card>
+</CardGroup>

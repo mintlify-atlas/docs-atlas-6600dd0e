@@ -1,0 +1,400 @@
+---
+title: "Roles and Permissions"
+description: "Understand the role-based access control system in Trellixe workspaces"
+---
+
+Trellixe implements a role-based permission system with two distinct roles: Admin and Member. This system balances security with usability, ensuring workspace integrity while enabling team collaboration.
+
+## Role Types
+
+Every workspace member has exactly one role:
+
+```ruby
+# app/models/membership.rb:8
+enum :role, { member: "member", admin: "admin" }, default: :member
+```
+
+### Admin Role
+
+Admins have full control over the workspace and team management.
+
+### Member Role
+
+Members have standard access for day-to-day CRM activities without administrative privileges.
+
+## Permission Matrix
+
+### Workspace Management
+
+| Action | Admin | Member |
+|--------|-------|--------|
+| Create workspace | ✅ | ✅ |
+| Edit workspace settings | ✅ | ❌ |
+| Delete workspace | ✅ | ❌ |
+| Switch between workspaces | ✅ | ✅ |
+| View workspace details | ✅ | ✅ |
+
+<Info>
+  Any authenticated user can create a new workspace and automatically becomes its Admin.
+</Info>
+
+#### Code Reference: Workspace Editing
+
+```ruby
+# app/controllers/accounts_controller.rb:3
+before_action :ensure_admin!, only: [ :edit, :update, :destroy ]
+
+# app/controllers/accounts_controller.rb:73-77
+def ensure_admin!
+  unless admin?
+    redirect_to root_path, alert: "Access denied."
+  end
+end
+```
+
+### Team Management
+
+| Action | Admin | Member |
+|--------|-------|--------|
+| View members list | ✅ | ✅ |
+| Send team invitations | ✅ | ❌ |
+| Resend invitations | ✅ | ❌ |
+| Revoke invitations | ✅ | ❌ |
+| Change member roles | ✅ | ❌ |
+| Remove other members | ✅ | ❌ |
+| Leave workspace | ✅* | ✅ |
+
+<Note>
+  *Admins can only leave if they're not the last Admin. See [Last Admin Protection](#last-admin-protection).
+</Note>
+
+#### Code Reference: Invitation Permissions
+
+Invitation management is implicitly Admin-only through the DashboardsController authentication, with additional checks in the controller:
+
+```ruby
+# app/controllers/team_invitations_controller.rb:2
+before_action :authenticate
+```
+
+Only Admins access the invitation creation form and actions.
+
+#### Code Reference: Role Change Permissions
+
+```ruby
+# app/controllers/memberships_controller.rb:3
+before_action :ensure_admin!, only: [ :update ]
+
+# app/controllers/memberships_controller.rb:112-114
+def ensure_admin!
+  redirect_to members_path, alert: "Admins only." unless admin?
+end
+```
+
+#### Code Reference: Member Removal Authorization
+
+```ruby
+# app/controllers/memberships_controller.rb:43-47
+# Authorization: Admin OR Self
+unless admin? || @membership.user == Current.user
+  redirect_to members_path, alert: "Permission denied."
+  return
+end
+```
+
+This allows:
+- Admins to remove any member
+- Any member to remove themselves (leave)
+
+### CRM Data Management
+
+| Action | Admin | Member |
+|--------|-------|--------|
+| View contacts | ✅ | ✅ |
+| Create contacts | ✅ | ✅ |
+| Edit contacts | ✅ | ✅ |
+| Delete contacts | ✅ | ✅ |
+| View events | ✅ | ✅ |
+| Create events | ✅ | ✅ |
+| Edit events | ✅ | ✅ |
+| Delete events | ✅ | ✅ |
+| Manage event invitations | ✅ | ✅ |
+| Create follow-up tasks | ✅ | ✅ |
+| Update interaction logs | ✅ | ✅ |
+
+<Info>
+  CRM operations have equal access for Admins and Members. The role system focuses on workspace and team governance, not data access control.
+</Info>
+
+### Notifications
+
+| Action | Admin | Member |
+|--------|-------|--------|
+| View notifications | ✅ | ✅ |
+| Mark notifications as read | ✅ | ✅ |
+| Receive team notifications | ✅ | ✅ |
+
+All members receive relevant notifications regardless of role.
+
+## Special Permission Rules
+
+### Last Admin Protection
+
+Trellixe enforces critical safeguards to prevent workspaces from becoming unmanageable:
+
+#### Cannot Demote Last Admin
+
+```ruby
+# app/controllers/memberships_controller.rb:9-10
+if @membership.admin? && new_role == "member" && 
+   Current.account.memberships.admin.count <= 1
+  flash[:alert] = "You cannot demote the only Admin."
+end
+```
+
+**Why**: Every workspace must have at least one Admin to manage settings and members.
+
+#### Cannot Remove Last Admin
+
+Implicitly protected through the "cannot leave as last Admin" rule.
+
+#### Last Admin Cannot Leave
+
+```ruby
+# app/controllers/memberships_controller.rb:51-54
+if @membership.admin? && Current.account.memberships.admin.count == 1
+  redirect_to members_path, 
+              alert: "You cannot leave because you are the only Admin."
+  return
+end
+```
+
+**Solution**: Promote another member to Admin before leaving, or delete the workspace entirely.
+
+<Note>
+  These protections ensure workspace continuity and prevent orphaned workspaces.
+</Note>
+
+### Self-Service Permissions
+
+Members have limited self-service capabilities:
+
+**Can Do**:
+- Leave the workspace (if not last Admin)
+- View their own membership
+- Accept invitations to new workspaces
+- Switch between workspaces they belong to
+
+**Cannot Do**:
+- Change their own role
+- Access workspace settings
+- Manage other members
+
+### Creator Auto-Admin
+
+Workspace creators receive automatic Admin privileges:
+
+```ruby
+# app/controllers/accounts_controller.rb:14-15
+# Creator is always Admin
+Membership.create!(user: Current.user, account: @account, role: :admin)
+```
+
+This ensures the creator can immediately:
+- Configure workspace settings
+- Invite team members
+- Manage the new workspace
+
+## Permission Enforcement Layers
+
+### 1. Controller-Level Authorization
+
+Most permission checks occur in controllers using `before_action` callbacks:
+
+```ruby
+before_action :authenticate          # User must be logged in
+before_action :ensure_admin!          # User must be Admin
+```
+
+### 2. Action-Level Authorization
+
+Some actions have inline authorization checks:
+
+```ruby
+# app/controllers/memberships_controller.rb:43-47
+unless admin? || @membership.user == Current.user
+  redirect_to members_path, alert: "Permission denied."
+  return
+end
+```
+
+### 3. Model-Level Validation
+
+Models enforce data integrity:
+
+```ruby
+# app/models/membership.rb:10
+validates :user_id, uniqueness: { scope: :account_id }
+```
+
+This prevents duplicate memberships regardless of controller logic.
+
+### 4. UI-Level Controls
+
+The interface conditionally displays actions based on role:
+
+- Admins see "Edit Workspace," "Invite Members," role dropdowns
+- Members see standard CRM functionality only
+
+<Note>
+  UI controls are convenience features. True security relies on server-side authorization checks.
+</Note>
+
+## Role Assignment Lifecycle
+
+<Steps>
+  <Step title="Workspace Creation">
+    Creator is assigned Admin role automatically.
+    
+    ```ruby
+    Membership.create!(user: Current.user, account: @account, role: :admin)
+    ```
+  </Step>
+  
+  <Step title="Invitation Acceptance">
+    New members join with Member role by default:
+    
+    ```ruby
+    # app/models/membership.rb:8
+    enum :role, { member: "member", admin: "admin" }, default: :member
+    ```
+  </Step>
+  
+  <Step title="Role Promotion">
+    Admin changes role from Member to Admin via the Members page.
+  </Step>
+  
+  <Step title="Role Demotion">
+    Admin changes role from Admin to Member (with last Admin protection).
+  </Step>
+</Steps>
+
+## Role Strategy Best Practices
+
+<CardGroup cols={2}>
+  <Card title="Minimum Admins: 2-3" icon="users-gear">
+    Maintain multiple Admins to prevent single points of failure and ensure continuity during absences.
+  </Card>
+  
+  <Card title="Principle of Least Privilege" icon="shield-halved">
+    Only promote members to Admin if they need workspace management capabilities.
+  </Card>
+  
+  <Card title="Regular Audits" icon="magnifying-glass">
+    Periodically review Admin assignments and demote unnecessary Admins to Member.
+  </Card>
+  
+  <Card title="Onboarding Protocol" icon="user-plus">
+    New members join as Member by default. Promote to Admin after establishing trust and need.
+  </Card>
+</CardGroup>
+
+## Common Permission Scenarios
+
+### Scenario: Member Wants to Invite Someone
+
+**Problem**: Members cannot send invitations.
+
+**Solutions**:
+1. Ask an Admin to send the invitation
+2. Request promotion to Admin (if justified)
+3. Admin can delegate invitation tasks while maintaining control
+
+### Scenario: Only Admin Wants to Leave
+
+**Problem**: Last Admin protection prevents leaving.
+
+**Solutions**:
+1. Promote a trusted member to Admin first
+2. Then leave the workspace
+3. Or delete the workspace entirely if no longer needed
+
+### Scenario: Too Many Admins
+
+**Problem**: Many Admins dilute governance and increase risk.
+
+**Solution**:
+1. Review Admin list for necessary privileges
+2. Demote Admins who don't need workspace management access
+3. Keep 2-3 trusted Admins for critical operations
+
+### Scenario: Admin Accidentally Removed
+
+**Problem**: Important Admin was removed from workspace.
+
+**Solution**:
+1. Any remaining Admin can re-invite them
+2. They accept the invitation (join as Member)
+3. Promote them back to Admin
+4. Their data access is restored
+
+<Note>
+  Memberships don't have "soft delete." Removed members must be re-invited and re-promoted.
+</Note>
+
+## Security Considerations
+
+### Admin Role Grants Full Control
+
+Admins can:
+- Delete the entire workspace
+- Remove all members (except themselves if last Admin)
+- Change any member's role
+- Access all workspace settings
+
+<Info>
+  Only promote users you trust with complete workspace control.
+</Info>
+
+### No Granular Permissions
+
+Trellixe uses a simple two-tier system:
+- Admin = full workspace control
+- Member = CRM access only
+
+There are no custom roles or granular permission sets.
+
+**Trade-offs**:
+- **Simplicity**: Easy to understand and manage
+- **Security**: Clear boundaries prevent permission confusion
+- **Limitation**: Cannot create custom roles for specific needs
+
+### Password Protection for Critical Actions
+
+Some Admin actions require password re-authentication:
+
+```ruby
+# app/controllers/accounts_controller.rb:43-46
+unless Current.user.authenticate(params[:password_challenge])
+  redirect_to edit_account_path(@account), 
+              alert: "Incorrect password. Workspace was not deleted."
+end
+```
+
+This adds an extra security layer for destructive operations like workspace deletion.
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Manage Members" icon="users" href="/team/members">
+    Learn how to change roles and manage your team
+  </Card>
+  
+  <Card title="Workspace Settings" icon="gear" href="/team/workspaces">
+    Understand workspace management capabilities
+  </Card>
+  
+  <Card title="Send Invitations" icon="envelope" href="/team/invitations">
+    Invite new team members to your workspace
+  </Card>
+</CardGroup>

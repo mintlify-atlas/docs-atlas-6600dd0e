@@ -1,0 +1,146 @@
+---
+title: API Overview
+description: Getting started with the Trellixe API for managing contacts, events, and team workspaces
+---
+
+## Welcome to the Trellixe API
+
+The Trellixe API is a RESTful API built on Ruby on Rails that enables you to programmatically manage your networking CRM. You can create and manage contacts, schedule events, track follow-ups, and collaborate with your team.
+
+## Base URL
+
+All API requests should be made to:
+
+```
+https://your-domain.com
+```
+
+<Note>
+  The Trellixe API uses session-based authentication with HTTP-only cookies. Make sure your HTTP client supports cookies for authenticated requests.
+</Note>
+
+## API Architecture
+
+Trellixe follows RESTful conventions:
+
+- **GET** - Retrieve resources
+- **POST** - Create new resources
+- **PATCH/PUT** - Update existing resources
+- **DELETE** - Remove resources
+
+## Response Format
+
+The API returns HTML responses by default as it's designed for web application integration. For programmatic access, you may need to request JSON format by setting the `Accept` header:
+
+```bash
+Accept: application/json
+```
+
+## Core Resources
+
+The Trellixe API provides access to the following resources:
+
+### CRM Resources
+
+- **Contacts** - Manage your network of contacts
+- **Events** - Schedule and organize networking events
+- **Invitations** - Send event invitations and track RSVPs
+- **Follow-up Tasks** - Track and manage follow-up activities
+- **Interaction Logs** - Record interactions with contacts
+
+### Team Management
+
+- **Accounts** - Manage workspaces and switch between them
+- **Memberships** - Handle team member roles and permissions
+- **Team Invitations** - Invite new members to your workspace
+- **Notifications** - Receive and manage in-app notifications
+
+## Quick Start
+
+<Steps>
+  <Step title="Authenticate">
+    Sign in to create a session using your email and password.
+    
+    ```bash
+    curl -X POST https://your-domain.com/sign_in \
+      -H "Content-Type: application/x-www-form-urlencoded" \
+      -c cookies.txt \
+      -d "email=user@example.com&password=yourpassword"
+    ```
+  </Step>
+  
+  <Step title="Make API Requests">
+    Use the session cookie for subsequent requests.
+    
+    ```bash
+    curl https://your-domain.com/contacts \
+      -b cookies.txt \
+      -H "Accept: application/json"
+    ```
+  </Step>
+  
+  <Step title="Manage Your Session">
+    View active sessions or sign out when done.
+    
+    ```bash
+    # List all active sessions
+    curl https://your-domain.com/sessions \
+      -b cookies.txt
+    
+    # Sign out a specific session
+    curl -X DELETE https://your-domain.com/sessions/{session_id} \
+      -b cookies.txt
+    ```
+  </Step>
+</Steps>
+
+## Rate Limiting
+
+<Warning>
+  Rate limiting information is not currently documented. Contact your system administrator for details on API usage limits.
+</Warning>
+
+## Workspace Context
+
+All API requests operate within the context of your currently active workspace (account). To switch workspaces:
+
+```bash
+curl -X POST https://your-domain.com/accounts/{account_id}/switch \
+  -b cookies.txt
+```
+
+After switching, all subsequent requests will operate within the new workspace context.
+
+## Permissions
+
+API access is controlled by your role within each workspace:
+
+- **Admin** - Full access to all resources and team management
+- **Member** - Standard access to CRM features
+
+Your permissions are automatically enforced based on your membership role in the current workspace.
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Authentication" icon="lock" href="/api/authentication">
+    Learn about session management and authentication methods
+  </Card>
+  <Card title="Contacts API" icon="users" href="/api/contacts">
+    Start managing your contacts programmatically
+  </Card>
+  <Card title="Events API" icon="calendar" href="/api/events">
+    Create and manage networking events
+  </Card>
+  <Card title="Team Management" icon="user-group" href="/api/accounts">
+    Manage workspaces and team members
+  </Card>
+</CardGroup>
+
+## Support
+
+For questions or issues with the API:
+
+- Review the detailed endpoint documentation in the Resources section
+- Check the [GitHub repository](https://github.com/tolaseadegbite/Trellixe) for code examples
+- Submit issues or feature requests through GitHub

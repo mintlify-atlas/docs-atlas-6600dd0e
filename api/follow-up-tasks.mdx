@@ -1,0 +1,323 @@
+---
+title: Follow-Up Tasks API
+description: Manage follow-up tasks created after event attendances
+---
+
+## Overview
+
+The Follow-Up Tasks API manages tasks that are automatically created when contacts attend events. These tasks help you maintain relationships by reminding you to follow up with contacts after meeting them. Tasks are user-specific and scoped to the current account.
+
+## List Follow-Up Tasks
+
+<CodeGroup>
+```bash GET /follow_up_tasks
+curl -X GET "https://api.trellixe.com/follow_up_tasks" \
+  -H "Authorization: Bearer YOUR_API_TOKEN"
+```
+</CodeGroup>
+
+Retrieve a paginated list of incomplete follow-up tasks assigned to the current user.
+
+### Query Parameters
+
+<ParamField query="q[due_at_gteq]" type="datetime">
+  Filter tasks due on or after this date
+</ParamField>
+
+<ParamField query="q[due_at_lteq]" type="datetime">
+  Filter tasks due on or before this date
+</ParamField>
+
+<ParamField query="q[event_id_eq]" type="integer">
+  Filter tasks by specific event ID
+</ParamField>
+
+<ParamField query="q[contact_first_name_cont]" type="string">
+  Filter by contact first name (partial match)
+</ParamField>
+
+<ParamField query="page" type="integer" default="1">
+  Page number for pagination
+</ParamField>
+
+### Response
+
+<ResponseField name="follow_up_tasks" type="array">
+  <ResponseField name="id" type="integer">
+    Unique identifier for the task
+  </ResponseField>
+  
+  <ResponseField name="invitation_id" type="integer">
+    ID of the associated invitation
+  </ResponseField>
+  
+  <ResponseField name="user_id" type="integer">
+    ID of the user assigned to this task
+  </ResponseField>
+  
+  <ResponseField name="due_at" type="datetime">
+    When the follow-up is due
+  </ResponseField>
+  
+  <ResponseField name="completed_at" type="datetime">
+    When the task was completed (null if incomplete)
+  </ResponseField>
+  
+  <ResponseField name="created_at" type="datetime">
+    Timestamp when the task was created
+  </ResponseField>
+  
+  <ResponseField name="updated_at" type="datetime">
+    Timestamp when the task was last updated
+  </ResponseField>
+  
+  <ResponseField name="contact" type="object">
+    <ResponseField name="id" type="integer">
+      Contact ID
+    </ResponseField>
+    <ResponseField name="first_name" type="string">
+      Contact first name
+    </ResponseField>
+    <ResponseField name="last_name" type="string">
+      Contact last name
+    </ResponseField>
+    <ResponseField name="email" type="string">
+      Contact email
+    </ResponseField>
+  </ResponseField>
+  
+  <ResponseField name="event" type="object">
+    <ResponseField name="id" type="integer">
+      Event ID
+    </ResponseField>
+    <ResponseField name="name" type="string">
+      Event name
+    </ResponseField>
+    <ResponseField name="starts_at" type="datetime">
+      Event start time
+    </ResponseField>
+  </ResponseField>
+</ResponseField>
+
+<CodeGroup>
+```json Response Example
+{
+  "follow_up_tasks": [
+    {
+      "id": 23,
+      "invitation_id": 45,
+      "user_id": 5,
+      "due_at": "2026-03-16T09:00:00Z",
+      "completed_at": null,
+      "created_at": "2026-03-15T20:03:00Z",
+      "updated_at": "2026-03-15T20:03:00Z",
+      "contact": {
+        "id": 1,
+        "first_name": "John",
+        "last_name": "Doe",
+        "email": "john.doe@example.com"
+      },
+      "event": {
+        "id": 10,
+        "name": "Product Launch Party",
+        "starts_at": "2026-03-15T18:00:00Z"
+      }
+    }
+  ],
+  "pagination": {
+    "current_page": 1,
+    "total_pages": 2,
+    "total_count": 15
+  }
+}
+```
+</CodeGroup>
+
+### Filtering Behavior
+
+- Only shows tasks where `completed_at` is `null` (incomplete tasks)
+- Only shows tasks assigned to the current user
+- Only shows tasks for events belonging to the current account
+- Tasks are ordered by `due_at` ascending (earliest due dates first)
+
+---
+
+## Bulk Update Tasks
+
+<CodeGroup>
+```bash PATCH /follow_up_tasks/bulk_update
+curl -X PATCH "https://api.trellixe.com/follow_up_tasks/bulk_update" \
+  -H "Authorization: Bearer YOUR_API_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "task_ids": [23, 24, 25],
+    "commit": "Mark Complete"
+  }'
+```
+</CodeGroup>
+
+Perform bulk operations on multiple tasks: mark as complete or snooze for 24 hours.
+
+### Request Body
+
+<ParamField body="task_ids" type="array" required>
+  Array of task IDs to update
+</ParamField>
+
+<ParamField body="commit" type="string" required>
+  Action to perform: `Mark Complete` or `Snooze 24h`
+</ParamField>
+
+### Response
+
+<CodeGroup>
+```json 200 OK - Mark Complete
+{
+  "message": "Marked 3 tasks as complete."
+}
+```
+
+```json 200 OK - Snooze
+{
+  "message": "Snoozed 3 tasks for 24 hours."
+}
+```
+
+```json 400 Bad Request
+{
+  "error": "No tasks selected."
+}
+```
+
+```json 400 Bad Request
+{
+  "error": "No valid tasks found."
+}
+```
+</CodeGroup>
+
+### Bulk Update Actions
+
+#### Mark Complete
+
+Sets `completed_at` to the current timestamp for all selected tasks.
+
+```json
+{
+  "task_ids": [23, 24, 25],
+  "commit": "Mark Complete"
+}
+```
+
+#### Snooze 24h
+
+Shifts the `due_at` forward by 24 hours for all selected tasks.
+
+```json
+{
+  "task_ids": [23, 24, 25],
+  "commit": "Snooze 24h"
+}
+```
+
+### Security & Validation
+
+- Only updates tasks assigned to the current user
+- Only updates tasks for events in the current account
+- Only updates incomplete tasks (`completed_at` is `null`)
+- All updates happen within a database transaction
+- Tasks already completed or from other accounts are ignored
+
+---
+
+## Automatic Task Creation
+
+Follow-up tasks are **automatically created** when an invitation status changes to `attended`. You cannot create tasks manually via the API.
+
+### Task Creation Rules
+
+<ParamField body="invitation_id" type="integer" required>
+  Created when invitation status changes to `attended`
+</ParamField>
+
+<ParamField body="user_id" type="integer" required>
+  Assigned to the user who marked the invitation as attended
+</ParamField>
+
+<ParamField body="due_at" type="datetime" required>
+  Set to 3 minutes after event ends (in production: next day at 9 AM)
+</ParamField>
+
+<ParamField body="completed_at" type="datetime">
+  Initially `null` (incomplete)
+</ParamField>
+
+### Duplicate Prevention
+
+The system checks if a follow-up task already exists for an invitation before creating a new one:
+
+```ruby
+return if FollowUpTask.exists?(invitation_id: invitation.id)
+```
+
+---
+
+## Reminder Notifications
+
+When a follow-up task is created, a reminder job is automatically scheduled:
+
+- Job: `FollowUpReminderJob`
+- Scheduled for: Task's `due_at` time
+- Sends: In-app notification to the assigned user
+- Trigger: Runs after task creation via `after_create_commit` callback
+
+### Example Workflow
+
+1. Contact attends event at 6:00 PM
+2. User marks invitation as "attended"
+3. Follow-up task created, due tomorrow at 9:00 AM
+4. Reminder job scheduled for tomorrow at 9:00 AM
+5. User receives notification: "Time to follow up with John Doe from Product Launch Party"
+
+---
+
+## Completing Tasks via Interaction Logs
+
+When you create an interaction log for a follow-up task, the task is automatically marked as complete.
+
+See [Interaction Logs API](/api/interaction-logs#create-interaction-log) for details.
+
+---
+
+## Ransack Search Capabilities
+
+The Follow-Up Tasks API supports advanced filtering via Ransack:
+
+### Searchable Attributes
+
+- `due_at` - Filter by due date
+
+### Searchable Associations
+
+- `contact` - Filter by contact attributes (first name, last name, email)
+- `event` - Filter by event attributes (name, start date)
+- `invitation` - Filter by invitation attributes
+
+### Example Searches
+
+<CodeGroup>
+```bash Due This Week
+curl -X GET "https://api.trellixe.com/follow_up_tasks?q[due_at_gteq]=2026-03-03&q[due_at_lteq]=2026-03-09" \
+  -H "Authorization: Bearer YOUR_API_TOKEN"
+```
+
+```bash Specific Event
+curl -X GET "https://api.trellixe.com/follow_up_tasks?q[event_id_eq]=10" \
+  -H "Authorization: Bearer YOUR_API_TOKEN"
+```
+
+```bash Contact Name Search
+curl -X GET "https://api.trellixe.com/follow_up_tasks?q[contact_first_name_cont]=John" \
+  -H "Authorization: Bearer YOUR_API_TOKEN"
+```
+</CodeGroup>

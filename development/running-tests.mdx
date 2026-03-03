@@ -1,0 +1,607 @@
+---
+title: "Running Tests"
+description: "Guide to running and writing tests for Trellixe"
+---
+
+## Overview
+
+Trellixe uses Rails' built-in testing framework (Minitest) with the following test types:
+
+- **Unit Tests** - Models and helpers
+- **Controller Tests** - Controller actions and responses
+- **Integration Tests** - Multi-controller workflows
+- **System Tests** - Full browser-based tests using Capybara and Selenium
+
+## Test Environment Setup
+
+<Steps>
+  <Step title="Prepare test database">
+    Create and migrate the test database:
+    
+    ```bash
+    RAILS_ENV=test bin/rails db:create
+    RAILS_ENV=test bin/rails db:migrate
+    ```
+  </Step>
+
+  <Step title="Install test dependencies">
+    Ensure all test gems are installed:
+    
+    ```bash
+    bundle install
+    ```
+    
+    Key testing dependencies:
+    - **minitest** - Testing framework (included with Rails)
+    - **capybara** - System testing DSL
+    - **selenium-webdriver** - Browser automation
+  </Step>
+
+  <Step title="Verify setup">
+    Run a quick test to verify everything is configured:
+    
+    ```bash
+    bin/rails test:all
+    ```
+  </Step>
+</Steps>
+
+## Running Tests
+
+### Run All Tests
+
+```bash
+# Run all test types
+bin/rails test:all
+
+# Or use the shorter command
+bin/rails test
+```
+
+### Run Specific Test Types
+
+<CodeGroup>
+
+```bash Controllers
+# Run all controller tests
+bin/rails test:controllers
+```
+
+```bash Models
+# Run all model tests
+bin/rails test:models
+```
+
+```bash Integration
+# Run all integration tests
+bin/rails test:integration
+```
+
+```bash System
+# Run all system tests
+bin/rails test:system
+```
+
+```bash Helpers
+# Run all helper tests
+bin/rails test:helpers
+```
+
+```bash Mailers
+# Run all mailer tests
+bin/rails test:mailers
+```
+
+```bash Jobs
+# Run all job tests
+bin/rails test:jobs
+```
+
+</CodeGroup>
+
+### Run Individual Test Files
+
+```bash
+# Run a specific test file
+bin/rails test test/controllers/contacts_controller_test.rb
+
+# Run a specific test method
+bin/rails test test/controllers/contacts_controller_test.rb:12
+```
+
+### Run Tests by Pattern
+
+```bash
+# Run all tests matching a pattern
+bin/rails test test/controllers/*_controller_test.rb
+
+# Run tests in a subdirectory
+bin/rails test test/controllers/identity/
+```
+
+## Test Configuration
+
+### Test Helper
+
+The main test configuration is in `test/test_helper.rb`:
+
+```ruby test/test_helper.rb
+ENV["RAILS_ENV"] ||= "test"
+require_relative "../config/environment"
+require "rails/test_help"
+
+class ActiveSupport::TestCase
+  # Run tests in parallel with specified workers
+  parallelize(workers: :number_of_processors)
+
+  # Setup all fixtures in test/fixtures/*.yml
+  fixtures :all
+
+  # Add more helper methods to be used by all tests here...
+  def sign_in_as(user)
+    post(sign_in_url, params: { email: user.email, password: "Secret1*3*5*" })
+    user
+  end
+end
+```
+
+<Note>
+  Tests run in parallel by default, using all available CPU cores for faster execution.
+</Note>
+
+### System Test Configuration
+
+System tests are configured in `test/application_system_test_case.rb`:
+
+```ruby test/application_system_test_case.rb
+require "test_helper"
+
+class ApplicationSystemTestCase < ActionDispatch::SystemTestCase
+  driven_by :selenium, using: :chrome, screen_size: [1400, 1400]
+end
+```
+
+<Warning>
+  System tests require Chrome or Chromium browser to be installed on your system.
+</Warning>
+
+## Test Structure
+
+Tests are organized in the `test/` directory:
+
+```
+test/
+├── application_system_test_case.rb
+├── test_helper.rb
+├── controllers/
+│   ├── accounts_controller_test.rb
+│   ├── contacts_controller_test.rb
+│   ├── dashboard_controller_test.rb
+│   ├── events_controller_test.rb
+│   ├── follow_up_tasks_controller_test.rb
+│   ├── interaction_logs_controller_test.rb
+│   ├── invitations_controller_test.rb
+│   ├── members_controller_test.rb
+│   ├── memberships_controller_test.rb
+│   ├── notifications_controller_test.rb
+│   ├── identity/
+│   │   ├── email_verifications_controller_test.rb
+│   │   ├── emails_controller_test.rb
+│   │   ├── names_controller_test.rb
+│   │   ├── password_resets_controller_test.rb
+│   │   └── time_zones_controller_test.rb
+│   └── ...
+├── fixtures/
+│   ├── contacts.yml
+│   ├── events.yml
+│   ├── follow_up_tasks.yml
+│   ├── interaction_logs.yml
+│   ├── invitations.yml
+│   ├── users.yml
+│   └── web_push_subscriptions.yml
+├── helpers/
+├── integration/
+├── jobs/
+├── mailers/
+├── models/
+└── system/
+```
+
+## Test Fixtures
+
+Fixtures provide sample data for tests. They're defined in YAML files under `test/fixtures/`.
+
+### Available Fixtures
+
+- `users.yml` - User accounts
+- `contacts.yml` - Contact records
+- `events.yml` - Networking events
+- `invitations.yml` - Event invitations
+- `follow_up_tasks.yml` - Follow-up tasks
+- `interaction_logs.yml` - Interaction history
+- `web_push_subscriptions.yml` - Push notification subscriptions
+
+### Using Fixtures in Tests
+
+```ruby
+class ContactsControllerTest < ActionDispatch::IntegrationTest
+  test "should get index" do
+    # Access fixture data
+    user = users(:one)
+    sign_in_as(user)
+    
+    get contacts_url
+    assert_response :success
+  end
+  
+  test "should show contact" do
+    contact = contacts(:one)
+    sign_in_as(contact.owner)
+    
+    get contact_url(contact)
+    assert_response :success
+  end
+end
+```
+
+## Writing Tests
+
+### Controller Test Example
+
+```ruby test/controllers/contacts_controller_test.rb
+require "test_helper"
+
+class ContactsControllerTest < ActionDispatch::IntegrationTest
+  setup do
+    @contact = contacts(:one)
+    @user = users(:one)
+    sign_in_as(@user)
+  end
+
+  test "should get index" do
+    get contacts_url
+    assert_response :success
+  end
+
+  test "should create contact" do
+    assert_difference("Contact.count") do
+      post contacts_url, params: {
+        contact: {
+          first_name: "John",
+          last_name: "Doe",
+          email: "john@example.com"
+        }
+      }
+    end
+    assert_redirected_to contact_url(Contact.last)
+  end
+
+  test "should update contact" do
+    patch contact_url(@contact), params: {
+      contact: { first_name: "Jane" }
+    }
+    assert_redirected_to contact_url(@contact)
+    @contact.reload
+    assert_equal "Jane", @contact.first_name
+  end
+
+  test "should destroy contact" do
+    assert_difference("Contact.count", -1) do
+      delete contact_url(@contact)
+    end
+    assert_redirected_to contacts_url
+  end
+end
+```
+
+### Model Test Example
+
+```ruby test/models/contact_test.rb
+require "test_helper"
+
+class ContactTest < ActiveSupport::TestCase
+  test "should be valid with required attributes" do
+    contact = Contact.new(
+      owner: users(:one),
+      first_name: "John",
+      last_name: "Doe"
+    )
+    assert contact.valid?
+  end
+
+  test "should require owner" do
+    contact = Contact.new(first_name: "John")
+    assert_not contact.valid?
+    assert_includes contact.errors[:owner], "must exist"
+  end
+
+  test "should have full name" do
+    contact = contacts(:one)
+    expected_name = "#{contact.first_name} #{contact.last_name}"
+    assert_equal expected_name, contact.full_name
+  end
+end
+```
+
+### System Test Example
+
+```ruby test/system/contacts_test.rb
+require "application_system_test_case"
+
+class ContactsTest < ApplicationSystemTestCase
+  setup do
+    @user = users(:one)
+    @contact = contacts(:one)
+  end
+
+  test "visiting the index" do
+    sign_in_as(@user)
+    visit contacts_url
+    
+    assert_selector "h1", text: "Contacts"
+  end
+
+  test "creating a contact" do
+    sign_in_as(@user)
+    visit contacts_url
+    
+    click_on "New Contact"
+    
+    fill_in "First name", with: "John"
+    fill_in "Last name", with: "Doe"
+    fill_in "Email", with: "john@example.com"
+    
+    click_on "Create Contact"
+    
+    assert_text "Contact was successfully created"
+  end
+end
+```
+
+## Test Options
+
+### Verbose Output
+
+```bash
+# Show detailed test output
+bin/rails test --verbose
+
+# Or use short flag
+bin/rails test -v
+```
+
+### Fail Fast
+
+```bash
+# Stop after first failure
+bin/rails test --fail-fast
+```
+
+### Disable Parallelization
+
+```bash
+# Run tests sequentially (useful for debugging)
+PARALLEL_WORKERS=1 bin/rails test
+```
+
+### Seed Random Order
+
+```bash
+# Run tests in random order with specific seed
+bin/rails test --seed 12345
+```
+
+## Code Coverage
+
+While not currently configured, you can add code coverage using SimpleCov:
+
+```ruby Gemfile
+group :test do
+  gem "simplecov", require: false
+end
+```
+
+```ruby test/test_helper.rb
+require "simplecov"
+SimpleCov.start "rails"
+
+ENV["RAILS_ENV"] ||= "test"
+# ... rest of test_helper.rb
+```
+
+## Continuous Integration
+
+### GitHub Actions Example
+
+```yaml .github/workflows/test.yml
+name: Tests
+
+on: [push, pull_request]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_PASSWORD: postgres
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+        ports:
+          - 5432:5432
+    
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Set up Ruby
+        uses: ruby/setup-ruby@v1
+        with:
+          ruby-version: 3.4.5
+          bundler-cache: true
+      
+      - name: Setup database
+        env:
+          RAILS_ENV: test
+          DATABASE_URL: postgres://postgres:postgres@localhost:5432/trellixe_test
+        run: |
+          bin/rails db:create
+          bin/rails db:migrate
+      
+      - name: Run tests
+        env:
+          RAILS_ENV: test
+          DATABASE_URL: postgres://postgres:postgres@localhost:5432/trellixe_test
+        run: bin/rails test:all
+```
+
+## Debugging Tests
+
+### Using the Debugger
+
+Add `debugger` anywhere in your test:
+
+```ruby
+test "should create contact" do
+  debugger  # Execution will pause here
+  post contacts_url, params: { contact: { first_name: "John" } }
+end
+```
+
+Run the test:
+
+```bash
+bin/rails test test/controllers/contacts_controller_test.rb:10
+```
+
+### Inspect Test Database
+
+```bash
+# Open test database console
+RAILS_ENV=test bin/rails dbconsole
+
+# Or with direct psql
+psql trellixe_test
+```
+
+### View Test Logs
+
+```bash
+# Tail test logs
+tail -f log/test.log
+```
+
+## Best Practices
+
+<CardGroup cols={2}>
+  <Card title="Keep Tests Fast" icon="gauge-high">
+    Use fixtures instead of factories when possible. Avoid unnecessary database calls.
+  </Card>
+  
+  <Card title="Test Behavior, Not Implementation" icon="bullseye">
+    Focus on testing what the code does, not how it does it.
+  </Card>
+  
+  <Card title="Use Descriptive Test Names" icon="tag">
+    Test names should clearly describe what they're testing.
+  </Card>
+  
+  <Card title="One Assertion Per Test" icon="list-check">
+    Keep tests focused on a single behavior or outcome.
+  </Card>
+  
+  <Card title="Setup and Teardown" icon="broom">
+    Use `setup` and `teardown` methods to DRY up test code.
+  </Card>
+  
+  <Card title="Test Edge Cases" icon="triangle-exclamation">
+    Don't just test the happy path - test error conditions too.
+  </Card>
+</CardGroup>
+
+## Security Testing
+
+### Brakeman Security Scanner
+
+Run Brakeman to check for security vulnerabilities:
+
+```bash
+# Run security scan
+bundle exec brakeman
+
+# Check specific paths
+bundle exec brakeman app/controllers
+
+# Output to HTML
+bundle exec brakeman -o report.html
+```
+
+<Warning>
+  Always run Brakeman before deploying to production.
+</Warning>
+
+## Code Quality
+
+### RuboCop Linting
+
+Run RuboCop to check code style:
+
+```bash
+# Check all files
+bundle exec rubocop
+
+# Auto-correct issues
+bundle exec rubocop -A
+
+# Check specific files
+bundle exec rubocop app/models/contact.rb
+```
+
+Trellixe uses the `rubocop-rails-omakase` configuration for consistent Ruby styling.
+
+## Troubleshooting
+
+<AccordionGroup>
+  <Accordion title="Tests fail with database errors">
+    Ensure your test database is up to date:
+    
+    ```bash
+    RAILS_ENV=test bin/rails db:drop db:create db:migrate
+    ```
+  </Accordion>
+
+  <Accordion title="System tests fail to start browser">
+    Install ChromeDriver:
+    
+    ```bash
+    # macOS
+    brew install chromedriver
+    
+    # Ubuntu/Debian
+    sudo apt-get install chromium-chromedriver
+    ```
+  </Accordion>
+
+  <Accordion title="Parallel tests causing issues">
+    Disable parallelization:
+    
+    ```bash
+    PARALLEL_WORKERS=1 bin/rails test
+    ```
+  </Accordion>
+
+  <Accordion title="Fixture loading errors">
+    Check your fixture YAML files for syntax errors. Ensure all references to other fixtures are valid.
+  </Accordion>
+</AccordionGroup>
+
+## Next Steps
+
+- Learn about [Database Schema](/development/database-schema)
+- Review [Environment Setup](/development/environment-setup)
+- Explore test examples in the `test/` directory
+- Write tests for new features before implementation (TDD)

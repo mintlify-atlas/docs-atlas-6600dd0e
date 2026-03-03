@@ -1,80 +1,270 @@
 ---
-title: "Quickstart"
-description: "Start building awesome documentation in minutes"
+title: Quick Start Guide
+description: Get started with Trellixe in under 5 minutes—from signup to your first successful follow-up
 ---
 
-## Get started in three steps
+# Quick Start Guide
 
-Get your documentation site running locally and make your first customization.
+This guide will walk you through the complete Trellixe workflow: creating your account, adding your first contact, tracking an event, and completing a follow-up. You'll be up and running in under 5 minutes.
 
-### Step 1: Set up your local environment
+## Prerequisites
 
-<AccordionGroup>
-  <Accordion icon="copy" title="Clone your docs locally">
-    During the onboarding process, you created a GitHub repository with your docs content if you didn't already have one. You can find a link to this repository in your [dashboard](https://dashboard.mintlify.com).
-    
-    To clone the repository locally so that you can make and preview changes to your docs, follow the [Cloning a repository](https://docs.github.com/en/repositories/creating-and-managing-repositories/cloning-a-repository) guide in the GitHub docs.
-  </Accordion>
-  <Accordion icon="rectangle-terminal" title="Start the preview server">
-    1. Install the Mintlify CLI: `npm i -g mint`
-    2. Navigate to your docs directory and run: `mint dev`
-    3. Open `http://localhost:3000` to see your docs live!
-    
-    <Tip>Your preview updates automatically as you edit files.</Tip>
-  </Accordion>
-</AccordionGroup>
-
-### Step 2: Deploy your changes
-
-<AccordionGroup>
-  <Accordion icon="github" title="Install our GitHub app">
-    Install the Mintlify GitHub app from your [dashboard](https://dashboard.mintlify.com/settings/organization/github-app).
-    
-    Our GitHub app automatically deploys your changes to your docs site, so you don't need to manage deployments yourself.
-</Accordion>
-<Accordion icon="palette" title="Update your site name and colors">
-    For a first change, let's update the name and colors of your docs site.
-
-    1. Open `docs.json` in your editor.
-    2. Change the `"name"` field to your project name.
-    3. Update the `"colors"` to match your brand.
-    4. Save and see your changes instantly at `http://localhost:3000`.
-
-    <Tip>Try changing the primary color to see an immediate difference!</Tip>
-  </Accordion>
-</AccordionGroup>
-
-### Step 3: Go live
-
-<Accordion icon="rocket" title="Publish your docs">
-  1. Commit and push your changes.
-  2. Your docs will update and be live in moments!
-</Accordion>
-
-## Next steps
-
-Now that you have your docs running, explore these key features:
-
-<CardGroup cols={2}>
-
-<Card title="Write Content" icon="pen-to-square" href="/essentials/markdown">
-  Learn MDX syntax and start writing your documentation.
-</Card>
-
-<Card title="Customize style" icon="palette" href="/essentials/settings">
-  Make your docs match your brand perfectly.
-</Card>
-
-<Card title="Add code examples" icon="square-code" href="/essentials/code">
-  Include syntax-highlighted code blocks.
-</Card>
-
-<Card title="API documentation" icon="code" href="/api-reference/introduction">
-  Auto-generate API docs from OpenAPI specs.
-</Card>
-
-</CardGroup>
+All you need is:
+- A valid email address
+- A contact you want to follow up with
+- 5 minutes of your time
 
 <Note>
-  **Need help?** See our [full documentation](https://mintlify.com/docs) or join our [community](https://mintlify.com/community).
+  **No credit card required** - Trellixe offers free early access to founding members. You can start building relationships immediately.
+</Note>
+
+## Step 1: Create Your Account
+
+<Steps>
+  <Step title="Sign Up">
+    Navigate to the signup page and create your account:
+    
+    ```ruby
+    # Registration form accepts:
+    - name: Your full name
+    - email: Your email address
+    - password: Choose a secure password
+    ```
+    
+    After signing up, you'll be logged in automatically and redirected to your dashboard.
+  </Step>
+  
+  <Step title="Verify Your Email">
+    Check your inbox for a verification email from Trellixe. Click the link to verify your email address (this ensures you receive follow-up notifications).
+  </Step>
+</Steps>
+
+<Info>
+  Your account comes with a default workspace. You can invite team members later from the Settings page.
+</Info>
+
+## Step 2: Add Your First Contact
+
+Contacts are the foundation of Trellixe. Let's add someone you recently met.
+
+<Steps>
+  <Step title="Navigate to Contacts">
+    From your dashboard, click on **Contacts** in the navigation menu.
+  </Step>
+  
+  <Step title="Create a New Contact">
+    Click the **New Contact** button and fill in the details:
+    
+    ```ruby
+    # Required fields:
+    - first_name: Contact's first name (required)
+    
+    # Optional fields:
+    - last_name: Contact's last name
+    - email: Contact's email address
+    - phone_number: Contact's phone number
+    - how_we_met: Crucial context about how you met
+    ```
+  </Step>
+  
+  <Step title="Add Contextual Notes">
+    The `how_we_met` field is your secret weapon. This is where you capture:
+    
+    - Where you met ("Met at the Tech Conference in Austin")
+    - What you talked about ("Interested in our product, has a team of 20")
+    - Their interests or needs ("Looking for CRM solutions, loves golf")
+    - Any promises made ("Said I'd send pricing by Friday")
+    
+    This context transforms a cold follow-up into a warm, personal conversation.
+  </Step>
+</Steps>
+
+<Warning>
+  **Don't skip the notes!** - The difference between "Hi John" and "Hi John, great meeting you at the Austin conference—I wanted to follow up on that CRM discussion" is the difference between being ignored and getting a response.
+</Warning>
+
+## Step 3: Create Your First Event
+
+Events are the trigger for automated follow-ups. Let's create one.
+
+<Steps>
+  <Step title="Navigate to Events">
+    Click on **Events** in the navigation menu to see your calendar.
+  </Step>
+  
+  <Step title="Create a New Event">
+    Click **New Event** and fill in the details:
+    
+    ```ruby
+    # Event parameters:
+    - name: "Tech Conference Networking Session" (required)
+    - starts_at: Event start date and time (required)
+    - duration_in_minutes: How long the event lasts (required)
+    - contact_ids: Array of contact IDs to invite
+    ```
+    
+    You can either add contacts when creating the event or add them later.
+  </Step>
+  
+  <Step title="Invite Contacts to the Event">
+    If you didn't add contacts during creation:
+    
+    1. Click on your event to view details
+    2. Select contacts from the **Available Contacts** dropdown
+    3. Click **Send Invitations**
+    
+    This creates invitation records for each contact.
+  </Step>
+</Steps>
+
+<Info>
+  You can bulk assign multiple contacts to an event from the Contacts page using the **Assign to Event** action.
+</Info>
+
+## Step 4: Mark Attendance (The Magic Step)
+
+After your event happens, marking attendance is the trigger that creates automatic follow-up reminders.
+
+<Steps>
+  <Step title="Open Your Event">
+    Navigate to **Events** and click on the event that just happened.
+  </Step>
+  
+  <Step title="Mark Who Attended">
+    You'll see a list of all invited contacts. For each person who showed up:
+    
+    **Individual Update:**
+    - Click the status dropdown next to their name
+    - Change from "Invited" to "Attended"
+    
+    **Bulk Update:**
+    - Select multiple contacts using checkboxes
+    - Click **Mark as Attended** button
+    
+    ```ruby
+    # Behind the scenes, this:
+    # 1. Updates invitation status to 'attended'
+    # 2. Creates a FollowUpTask for the contact
+    # 3. Schedules a reminder notification
+    ```
+  </Step>
+</Steps>
+
+<Warning>
+  **Timing matters!** - When you mark someone as attended, Trellixe calculates the follow-up reminder time based on when the event ends. The default is the next day at 9 AM, giving you time to follow up while the connection is still fresh.
+</Warning>
+
+## Step 5: Complete Your Follow-Up
+
+The system automatically creates follow-up tasks for every attendee. Now it's time to take action.
+
+<Steps>
+  <Step title="View Your Follow-Up Tasks">
+    Navigate to **Follow-Up Tasks** to see your actionable to-do list:
+    
+    - Tasks are sorted by due date (most urgent first)
+    - Each task shows the contact name, event, and due time
+    - You can filter by event or search by contact name
+  </Step>
+  
+  <Step title="Make Contact">
+    Use the context you captured earlier to craft a personal message:
+    
+    - Call, text, or email the person
+    - Reference your conversation and the event
+    - Add value or continue the relationship
+  </Step>
+  
+  <Step title="Log the Interaction">
+    After you make contact:
+    
+    1. Click on the task to expand details
+    2. Click **Log Interaction**
+    3. Add a note about what you discussed:
+    
+    ```ruby
+    # InteractionLog parameters:
+    - note: "Called John, sent pricing info via email" (required)
+    - follow_up_task_id: Linked automatically
+    - contact_id: Linked automatically
+    - user_id: Your user ID (automatic)
+    ```
+    
+    This creates a permanent record of your interaction history.
+  </Step>
+  
+  <Step title="Mark Task as Complete">
+    After logging the interaction, mark the task as complete:
+    
+    - Click **Mark Complete** on individual tasks
+    - Or use bulk actions to complete multiple tasks at once
+    
+    Completed tasks are timestamped and moved out of your active queue.
+  </Step>
+</Steps>
+
+<Info>
+  **Can't follow up right now?** - Use the **Snooze 24h** button to push the reminder to tomorrow. Perfect for when you need more time or want to space out your follow-ups.
+</Info>
+
+## Next Steps
+
+Congratulations! You've completed your first full cycle with Trellixe. Here's what to do next:
+
+<CardGroup cols={2}>
+  <Card
+    title="Invite Your Team"
+    icon="users"
+    href="/team/workspaces"
+  >
+    Add team members to your workspace so everyone can collaborate on follow-ups.
+  </Card>
+  
+  <Card
+    title="Set Up Notifications"
+    icon="bell"
+    href="/guides/notifications"
+  >
+    Enable push notifications to get reminded even when you're not in the app.
+  </Card>
+  
+  <Card
+    title="Explore Best Practices"
+    icon="sparkles"
+    href="/guides/best-practices"
+  >
+    Learn about bulk operations, filtering, and keyboard shortcuts to work faster.
+  </Card>
+  
+  <Card
+    title="Review Contact History"
+    icon="clock-rotate-left"
+    href="/features/contact-management"
+  >
+    Click on any contact to see their complete history—all events attended and interactions logged.
+  </Card>
+</CardGroup>
+
+## Pro Tips
+
+<AccordionGroup>
+  <Accordion title="How often should I follow up?">
+    The golden window is 24-48 hours after meeting someone. That's when you're still fresh in their memory. Trellixe defaults to next-day reminders, but you can snooze tasks if you need more time.
+  </Accordion>
+  
+  <Accordion title="What if I forgot to mark attendance immediately?">
+    No problem! You can mark attendance any time after the event. The follow-up task will be created immediately when you mark them as attended.
+  </Accordion>
+  
+  <Accordion title="Can I bulk import contacts?">
+    Currently, contacts are added individually to ensure you capture proper context in the notes field. This intentionality leads to better follow-ups.
+  </Accordion>
+  
+  <Accordion title="What happens if I miss a follow-up?">
+    Tasks don't disappear if you miss the due date—they stay in your queue until you complete them. You can sort by due date to prioritize overdue tasks.
+  </Accordion>
+</AccordionGroup>
+
+<Note>
+  **Remember:** The entire Trellixe workflow is designed around one simple principle—**meaningful connections require timely, personal follow-ups**. The system handles the reminders, you bring the human touch.
 </Note>

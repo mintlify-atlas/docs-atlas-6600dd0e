@@ -1,0 +1,227 @@
+---
+title: 'Accounts API'
+description: 'Manage workspaces in Trellixe. Accounts are multi-tenant workspaces that contain contacts, events, and team members.'
+---
+
+## Overview
+
+Accounts (also called "workspaces") are the foundation of Trellixe's multi-tenant architecture. Each account is an isolated workspace containing:
+- Team members via memberships
+- Contacts and events
+- Team invitations
+- Notifications
+
+Every user must have at least one account. The creator of an account is automatically assigned as an Admin.
+
+## The Account Object
+
+Accounts are identified by a unique public ID with the prefix `acct_`.
+
+<ResponseField name="id" type="integer" required>
+  Internal database ID
+</ResponseField>
+
+<ResponseField name="public_id" type="string" required>
+  Public identifier with `acct_` prefix (e.g., `acct_abc123xyz`)
+</ResponseField>
+
+<ResponseField name="name" type="string" required>
+  Display name of the workspace
+</ResponseField>
+
+<ResponseField name="seat_limit" type="integer" required>
+  Maximum number of members and pending invitations allowed (default: 5)
+</ResponseField>
+
+<ResponseField name="created_at" type="timestamp">
+  Account creation timestamp
+</ResponseField>
+
+<ResponseField name="updated_at" type="timestamp">
+  Last modification timestamp
+</ResponseField>
+
+---
+
+## Create Account
+
+<Card title="POST /accounts" icon="plus">
+  Create a new workspace. The authenticated user becomes the first Admin member.
+</Card>
+
+### Request Body
+
+<ParamField body="account[name]" type="string" required>
+  Name for the new workspace
+</ParamField>
+
+### Response
+
+On success, redirects to root path and automatically switches the user's context to the new account.
+
+```json
+{
+  "id": 42,
+  "public_id": "acct_xk7j2m9p",
+  "name": "Acme Corp",
+  "seat_limit": 5,
+  "created_at": "2026-03-03T10:30:00Z",
+  "updated_at": "2026-03-03T10:30:00Z"
+}
+```
+
+### Example Request
+
+```bash
+curl -X POST https://api.trellixe.com/accounts \
+  -H "Content-Type: application/json" \
+  -d '{
+    "account": {
+      "name": "Acme Corp"
+    }
+  }'
+```
+
+<Note>
+  A membership record with `role: admin` is automatically created linking the authenticated user to the new account.
+</Note>
+
+---
+
+## Update Account
+
+<Card title="PATCH /accounts/:id" icon="pen">
+  Update workspace settings. Requires Admin role.
+</Card>
+
+### Path Parameters
+
+<ParamField path="id" type="string" required>
+  Public ID of the account (e.g., `acct_xk7j2m9p`)
+</ParamField>
+
+### Request Body
+
+<ParamField body="account[name]" type="string">
+  New name for the workspace
+</ParamField>
+
+### Authorization
+
+Only users with `admin` role in the account can update settings.
+
+### Response
+
+```json
+{
+  "id": 42,
+  "public_id": "acct_xk7j2m9p",
+  "name": "Acme Corporation",
+  "seat_limit": 5,
+  "updated_at": "2026-03-03T11:45:00Z"
+}
+```
+
+---
+
+## Delete Account
+
+<Card title="DELETE /accounts/:id" icon="trash">
+  Permanently delete a workspace and all associated data. Requires Admin role and password confirmation.
+</Card>
+
+### Path Parameters
+
+<ParamField path="id" type="string" required>
+  Public ID of the account to delete
+</ParamField>
+
+### Request Body
+
+<ParamField body="password_challenge" type="string" required>
+  Current user's password for security confirmation
+</ParamField>
+
+### Safety Guards
+
+<Note>
+  **Last Workspace Protection**: Users cannot delete their only remaining workspace. At least one account must remain.
+</Note>
+
+<Note>
+  **Password Verification**: The user's password must be provided and validated before deletion.
+</Note>
+
+### What Gets Deleted
+
+Deleting an account cascades and removes:
+- All memberships
+- All team invitations
+- All contacts (and their interaction logs)
+- All events (and their invitations)
+- All follow-up tasks
+- All workspace notifications
+
+### Example Request
+
+```bash
+curl -X DELETE https://api.trellixe.com/accounts/acct_xk7j2m9p \
+  -H "Content-Type: application/json" \
+  -d '{
+    "password_challenge": "user_password_here"
+  }'
+```
+
+---
+
+## Switch Account
+
+<Card title="POST /accounts/:id/switch" icon="arrow-right-arrow-left">
+  Switch the user's active workspace context.
+</Card>
+
+### Path Parameters
+
+<ParamField path="id" type="string" required>
+  Public ID of the account to switch to
+</ParamField>
+
+### Behavior
+
+Updates the session to set the target account as the current workspace. The user must be a member of the account to switch to it.
+
+### Response
+
+Redirects back to the previous page (or root) with the new account context active.
+
+### Example Request
+
+```bash
+curl -X POST https://api.trellixe.com/accounts/acct_abc123/switch
+```
+
+<Note>
+  After switching, all subsequent API calls operate within the context of the new account.
+</Note>
+
+---
+
+## Multi-Tenancy & Data Isolation
+
+Trellixe uses account-scoped data isolation:
+
+1. **Polymorphic Ownership**: Contacts and events belong to an account via polymorphic `owner` association
+2. **Session Context**: The current account is tracked in `session[:current_account_id]`
+3. **Automatic Scoping**: Controllers use `Current.account` to scope all queries
+4. **Cross-Account Access**: Users can be members of multiple accounts and switch between them
+
+### Seat Management
+
+Accounts track seat usage:
+
+```ruby
+seats_used = memberships.count + team_invitations.count
+seat_limit_reached? # true when seats_used >= seat_limit
+```
+
+Pending invitations count toward the seat limit to prevent over-provisioning.

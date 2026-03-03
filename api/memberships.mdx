@@ -1,0 +1,328 @@
+---
+title: 'Memberships API'
+description: 'Manage team members, roles, and permissions within Trellixe workspaces.'
+---
+
+## Overview
+
+Memberships represent the relationship between users and accounts (workspaces). Each membership defines a user's role and permissions within a specific workspace.
+
+## The Membership Object
+
+Memberships are identified by a unique public ID with the prefix `mem_`.
+
+<ResponseField name="id" type="integer" required>
+  Internal database ID
+</ResponseField>
+
+<ResponseField name="public_id" type="string" required>
+  Public identifier with `mem_` prefix (e.g., `mem_xyz789abc`)
+</ResponseField>
+
+<ResponseField name="user_id" type="integer" required>
+  ID of the user who is a member
+</ResponseField>
+
+<ResponseField name="account_id" type="integer" required>
+  ID of the workspace account
+</ResponseField>
+
+<ResponseField name="role" type="enum" required>
+  User's role in the workspace. Options:
+  - `member` - Standard user with basic permissions (default)
+  - `admin` - Full administrative access
+</ResponseField>
+
+<ResponseField name="created_at" type="timestamp">
+  When the user joined the workspace
+</ResponseField>
+
+<ResponseField name="updated_at" type="timestamp">
+  Last modification timestamp
+</ResponseField>
+
+---
+
+## Roles & Permissions
+
+<Card title="Member" icon="user">
+  Standard workspace access. Can view and manage contacts, events, and follow-ups within the workspace.
+</Card>
+
+<Card title="Admin" icon="shield">
+  Full administrative control. Can:
+  - Update workspace settings
+  - Invite new members
+  - Change member roles
+  - Remove members
+  - Delete the workspace
+</Card>
+
+<Note>
+  **Uniqueness Constraint**: Each user can only have one membership per account.
+</Note>
+
+---
+
+## Update Membership Role
+
+<Card title="PATCH /memberships/:id" icon="user-pen">
+  Change a team member's role. Admin only.
+</Card>
+
+### Path Parameters
+
+<ParamField path="id" type="string" required>
+  Public ID of the membership (e.g., `mem_xyz789abc`)
+</ParamField>
+
+### Request Body
+
+<ParamField body="membership[role]" type="enum" required>
+  New role for the member. Options: `member` or `admin`
+</ParamField>
+
+### Authorization
+
+Only workspace Admins can change roles.
+
+### Last Admin Protection
+
+<Note>
+  **Critical Safety Rule**: Cannot demote the only Admin to Member. At least one Admin must remain in the workspace.
+</Note>
+
+If attempting to demote the last admin:
+
+```json
+{
+  "error": "You cannot demote the only Admin."
+}
+```
+
+### Notifications
+
+When a role changes, the affected user receives an in-app notification and email via `TeamNotifier::RoleChanged`.
+
+### Response
+
+```json
+{
+  "id": 15,
+  "public_id": "mem_xyz789abc",
+  "user_id": 42,
+  "account_id": 7,
+  "role": "admin",
+  "created_at": "2026-02-15T09:20:00Z",
+  "updated_at": "2026-03-03T14:30:00Z"
+}
+```
+
+### Example Request
+
+```bash
+curl -X PATCH https://api.trellixe.com/memberships/mem_xyz789abc \
+  -H "Content-Type: application/json" \
+  -d '{
+    "membership": {
+      "role": "admin"
+    }
+  }'
+```
+
+---
+
+## Remove Member / Leave Workspace
+
+<Card title="DELETE /memberships/:id" icon="user-minus">
+  Remove a team member or leave a workspace. Handles both self-removal (leaving) and admin removal (kicking).
+</Card>
+
+### Path Parameters
+
+<ParamField path="id" type="string" required>
+  Public ID of the membership to delete
+</ParamField>
+
+### Authorization
+
+Two scenarios are permitted:
+1. **Self-removal (leaving)**: User can delete their own membership
+2. **Admin removal (kicking)**: Admins can remove any member
+
+### Scenario 1: Leaving a Workspace
+
+When a user removes their own membership:
+
+<Note>
+  **Admin Departure Rule**: If you're the only Admin, you cannot leave the workspace. Promote another member to Admin first.
+</Note>
+
+**Behavior:**
+- Session context is cleared (`session[:current_account_id] = nil`)
+- Other admins receive a notification via `TeamNotifier::MemberLeft`
+- User is redirected to the root path
+
+**Example Error:**
+
+```json
+{
+  "error": "You cannot leave because you are the only Admin."
+}
+```
+
+### Scenario 2: Removing a Member (Admin Action)
+
+When an admin removes another user:
+
+**Notifications sent:**
+1. Removed user receives `TeamNotifier::MemberRemoved` (in-app + email)
+2. Other admins receive audit notification with actor name
+
+**Response:**
+
+Successfully removed:
+
+```json
+{
+  "message": "Member removed."
+}
+```
+
+### Example Requests
+
+**Leave workspace:**
+
+```bash
+curl -X DELETE https://api.trellixe.com/memberships/mem_myown123
+```
+
+**Remove member (as admin):**
+
+```bash
+curl -X DELETE https://api.trellixe.com/memberships/mem_xyz789abc
+```
+
+---
+
+## List Members
+
+<Card title="GET /members" icon="users">
+  View all team members in the current workspace.
+</Card>
+
+This endpoint returns a list of all memberships for the current account, typically including user details like name and email.
+
+### Query Parameters
+
+<ParamField query="page" type="integer">
+  Page number for pagination (if implemented)
+</ParamField>
+
+### Response
+
+```json
+[
+  {
+    "id": 15,
+    "public_id": "mem_xyz789abc",
+    "role": "admin",
+    "user": {
+      "id": 42,
+      "public_id": "user_abc123",
+      "name": "Jane Smith",
+      "email": "jane@example.com"
+    },
+    "created_at": "2026-02-15T09:20:00Z"
+  },
+  {
+    "id": 16,
+    "public_id": "mem_def456ghi",
+    "role": "member",
+    "user": {
+      "id": 43,
+      "public_id": "user_def456",
+      "name": "John Doe",
+      "email": "john@example.com"
+    },
+    "created_at": "2026-02-20T11:45:00Z"
+  }
+]
+```
+
+---
+
+## Membership Lifecycle
+
+### 1. Creation
+
+Memberships are created in two ways:
+
+**Account Creation:**
+```ruby
+# Creator automatically becomes Admin
+Membership.create!(user: Current.user, account: @account, role: :admin)
+```
+
+**Invitation Acceptance:**
+```ruby
+# User accepts a team invitation
+Membership.create!(user: @user, account: @account, role: invitation.role)
+```
+
+### 2. Role Changes
+
+Admins can promote members or demote other admins (with Last Admin Protection).
+
+### 3. Removal
+
+Memberships end through:
+- Self-removal (leaving)
+- Admin removal (being kicked)
+- Account deletion (cascade)
+
+---
+
+## Database Constraints
+
+<Note>
+  **One Membership Per User Per Account**: The database enforces uniqueness on `[user_id, account_id]` to prevent duplicate memberships.
+</Note>
+
+### Schema Details
+
+```sql
+CREATE TABLE memberships (
+  id BIGSERIAL PRIMARY KEY,
+  user_id BIGINT NOT NULL REFERENCES users(id),
+  account_id BIGINT NOT NULL REFERENCES accounts(id),
+  role VARCHAR DEFAULT 'member' NOT NULL,
+  public_id VARCHAR UNIQUE,
+  created_at TIMESTAMP NOT NULL,
+  updated_at TIMESTAMP NOT NULL,
+  
+  UNIQUE(user_id, account_id)
+);
+```
+
+---
+
+## Security Considerations
+
+<Card title="Last Admin Protection" icon="shield-halved">
+  Multiple safeguards prevent workspaces from becoming admin-less:
+  - Cannot demote the only admin
+  - Cannot remove yourself if you're the only admin
+  - Cannot leave if you're the only admin
+</Card>
+
+<Card title="Authorization Matrix" icon="table">
+  | Action | Member | Admin |
+  |--------|--------|-------|
+  | View members | ✓ | ✓ |
+  | Leave workspace | ✓ | ✓* |
+  | Change roles | ✗ | ✓ |
+  | Remove others | ✗ | ✓ |
+  
+  *Only if not the last admin
+</Card>
